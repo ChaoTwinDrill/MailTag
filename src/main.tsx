@@ -1,13 +1,13 @@
-import { Theme } from "@radix-ui/themes";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./global.css";
 import Mediagrid from "./components/Mediagrid.tsx";
+import Header from "./components/header.tsx";
+
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <Theme>
+  <main className="flex h-screen flex-col overflow-hidden">
+      <Header />
       <Mediagrid />
-    </Theme>
-  </React.StrictMode>,
+    </main>
 );
