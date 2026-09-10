@@ -7,14 +7,13 @@ interface MediaCardProps
 
 function MediaCard({media}: MediaCardProps)
 {
-    return
-    (
+    return (
         <div className="overflow-hidden rounded-lg bg-card">
             <img 
                 src={media.src}
                 alt={media.name}
                 className="w-full object-cover"
-            >  </img>
+            />
         </div>  
     )
 }
