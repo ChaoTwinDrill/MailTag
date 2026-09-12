@@ -1,10 +1,14 @@
+@import url("https://fonts.google.com/specimen/Alexandria");
 @import "@radix-ui/colors/black-alpha.css";
 @import "@radix-ui/colors/violet.css";
 @import "tailwindcss";
 
+
 @theme {
+	--font-Alexandria: "Alexandria", sans-serif;
 	--color-fundo: #232227;
 	--color-base: #4D4B65;
 	--color-border: #383645;
 	--color-card: #8B8899;
+	--color-botao: #312E40;
 }
