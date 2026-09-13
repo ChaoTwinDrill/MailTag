@@ -1,69 +1,33 @@
-import React from "react";
+import { useState } from "react";
 import ReactDOM from "react-dom/client";
 import "./global.css";
 import Header from "./components/Header.tsx";
 import Mediagrid from "./components/Mediagrid.tsx";
-import { Media } from "./components/types/media.ts";
+import type { Media } from "./components/types/media.ts";
 
-  const medias: Media[] = [
-  {
-    id: "1",
-    name: "Neeko",
-    src: "./ahri.jpg",
-  },
-  {
-    id: "2",
-    name: "Ahri",
-    src: "./ahri.webp",
-  },
-  {
-    id: "3",
-    name: "boho",
-    src: "./bobooh.jpg",
-  },
-  {
-    id: "4",
-    name: "ko",
-    src: "./vboho.webp",
-  },
-  {
-    id: "5",
-    name: "Ahri",
-    src: "./neeko-lol-splash.avif",
-  },
-  {
-    id: "6",
-    name: "Ahri",
-    src: "./boho.webp",
-  },
-  {
-    id: "7",
-    name: "Ahri",
-    src: "./SINCLAS.png",
-  },
-  {
-    id: "8",
-    name: "Ahri",
-    src: "./images.jpg",
-  },
-  {
-    id: "9",
-    name: "Ahri",
-    src: "./horizontal.jpg",
-  },
-  {
-    id: "10",
-    name: "Ahri",
-    src: "./maquina.jpg",
-  },
-];
+const mediasIniciais: Media[] = [];
 
+function App() {
+  const [medias, setMedias] = useState<Media[]>(mediasIniciais);
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <main className="flex h-screen flex-col overflow-hidden">
-      <Header />
-      
+  function adicionarMedias(novasMedias: Media[]) {
+    setMedias((mediasAntigas) => [
+      ...mediasAntigas,
+      ...novasMedias
+    ]);
+  }
 
-<Mediagrid medias={medias} />
+  return (
+    <main className="flex h-screen flex-col overflow-hidden">
+      <Header onImport={adicionarMedias} />
+
+      <Mediagrid medias={medias} />
     </main>
-);
+  );
+}
+
+ReactDOM
+  .createRoot(document.getElementById("root") as HTMLElement)
+  .render(
+    <App />
+  );
