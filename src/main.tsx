@@ -9,6 +9,7 @@ const mediasIniciais: Media[] = [];
 
 function App() {
   const [medias, setMedias] = useState<Media[]>(mediasIniciais);
+  const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
 
   function adicionarMedias(novasMedias: Media[]) {
     setMedias((mediasAntigas) => [
@@ -21,7 +22,11 @@ function App() {
     <main className="flex h-screen flex-col overflow-hidden">
       <Header onImport={adicionarMedias} />
 
-      <Mediagrid medias={medias} />
+      <Mediagrid 
+        medias={medias} 
+        selectedMedia={selectedMedia}
+        onSelectMedia={setSelectedMedia}
+/>
     </main>
   );
 }

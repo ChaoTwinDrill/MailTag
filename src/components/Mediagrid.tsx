@@ -3,9 +3,11 @@ import MediaCard from './Mediacard';
 
 type MediagridProps = {
   medias : Media[];
+  onSelectMedia: (media: Media | null) => void;
+  selectedMedia: Media | null;
 };
 
-function Mediagrid({ medias }: MediagridProps) {
+function Mediagrid({ medias, onSelectMedia, selectedMedia }: MediagridProps) {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
 
@@ -16,7 +18,10 @@ function Mediagrid({ medias }: MediagridProps) {
               key={media.id}
               className="mb-4 break-inside-avoid"
             >
-              <MediaCard media={media} />
+              <MediaCard media={media} 
+              onSelectMedia={onSelectMedia}
+              selected={selectedMedia?.id === media.id}
+        />
             </div>
           ))}
       </div>
