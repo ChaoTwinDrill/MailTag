@@ -1,5 +1,6 @@
 import type { Media } from './types/media';
 import MediaCard from './Mediacard';
+import MediaInfo from './MediaInfo';
 
 type MediagridProps = {
   medias : Media[];
@@ -26,9 +27,7 @@ function Mediagrid({ medias, onSelectMedia, selectedMedia }: MediagridProps) {
           ))}
       </div>
 </div>
-      <div className="w-1/4 shrink-0 bg-base p-4 text-white">
-        Informações da mídia
-      </div>
+      <MediaInfo media={selectedMedia}  />
 
     </div>
 );
