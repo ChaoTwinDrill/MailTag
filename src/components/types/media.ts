@@ -1,3 +1,5 @@
+import { tags } from "./tag";
+
 export interface Media 
 {
     id: string;
@@ -8,4 +10,6 @@ export interface Media
     modifiedAt: Date;
     width: number;
     height: number;
+    tags: tags[];
 }
+

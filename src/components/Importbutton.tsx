@@ -44,6 +44,31 @@ function ImportButton({ onImport }: ImportButtonProps) {
             "webp",
             "avif"
           ]
+        },
+        {
+          name: "Animados",
+          extensions: [
+            "mp4", 
+            "webm", 
+            "mov", 
+            "avi", 
+            "gif"
+          ]
+        },
+        {
+          name: "Todos os arquivos",
+          extensions: [
+            "png",
+            "jpg",
+            "jpeg",
+            "gif",
+            "webp",
+            "avif",
+            "mp4", 
+            "webm", 
+            "mov", 
+            "avi"
+          ]  
         }
       ]
     });
@@ -70,7 +95,8 @@ function ImportButton({ onImport }: ImportButtonProps) {
           createdAt: informacoes.birthtime ? new Date(informacoes.birthtime) : new Date(),
           modifiedAt: informacoes.mtime ? new Date(informacoes.mtime) : new Date(),
           width: resolucao.width,
-          height: resolucao.height
+          height: resolucao.height,
+          tags: []
         };
       })
     );
