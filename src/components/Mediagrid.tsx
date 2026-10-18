@@ -1,6 +1,7 @@
 import type { Media } from './types/media';
 import MediaCard from './Mediacard';
 import MediaInfo from './MediaInfo';
+import Tagbutton from './Tagbutton';
 
 type MediagridProps = {
   medias : Media[];

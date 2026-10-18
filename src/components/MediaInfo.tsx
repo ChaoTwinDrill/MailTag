@@ -1,3 +1,4 @@
+import Tagbutton from "./Tagbutton";
 import type { Media } from "./types/media";
 
 interface MediaInfoProps {
@@ -38,7 +39,7 @@ function MediaInfo({ media }: MediaInfoProps) {
   }
 
   return (
-    <aside className="w-1/4 min-h-0 shrink-0 bg-base overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden text-white">
+    <aside className="position: relative w-1/4 min-h-0 shrink-0 bg-base overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden text-white">
       <img
         src={media.src}
         alt={media.name}
@@ -61,11 +62,13 @@ function MediaInfo({ media }: MediaInfoProps) {
         <p className="mt-1 text-sm text-gray-400 font-alexandria font-[500]">
           Criado em: {formatarData(media.createdAt)}
         </p>
-        <p className="mt-1 text-sm text-gray-400 font-alexandria font-[500]">
+        <p className="mt-1 pb-6 text-sm text-gray-400 font-alexandria font-[500]">
           Modificado em: {formatarData(media.modifiedAt)}
         </p>
       </div>
+      <Tagbutton media={media} />
     </aside>
+
   );
 }
 
