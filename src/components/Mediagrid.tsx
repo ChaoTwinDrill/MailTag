@@ -7,9 +7,10 @@ type MediagridProps = {
   medias : Media[];
   onSelectMedia: (media: Media | null) => void;
   selectedMedia: Media | null;
+  onAddTag: (mediaId: string, nomeTag: string) => void;
 };
 
-function Mediagrid({ medias, onSelectMedia, selectedMedia }: MediagridProps) {
+function Mediagrid({ medias, onSelectMedia, selectedMedia, onAddTag }: MediagridProps) {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
 
@@ -28,7 +29,9 @@ function Mediagrid({ medias, onSelectMedia, selectedMedia }: MediagridProps) {
           ))}
       </div>
 </div>
-      <MediaInfo media={selectedMedia}  />
+      <MediaInfo media={selectedMedia}  
+      onAddTag={onAddTag}
+      />
 
     </div>
 );

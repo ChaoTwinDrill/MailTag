@@ -3,7 +3,10 @@ import type { Media } from "./types/media";
 
 interface MediaInfoProps {
   media: Media | null;
+  onAddTag: (mediaId: string, nomeTag: string) => void;
 }
+
+
 function formatarTamanho(bytes: number) {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -24,7 +27,7 @@ function formatarData(data: Date) {
   return data.toLocaleString("pt-BR");
 }
 
-function MediaInfo({ media }: MediaInfoProps) {
+function MediaInfo({ media, onAddTag }: MediaInfoProps) {
   if (!media) {
     return (
       <aside className="w-1/4 shrink-0 bg-base [scrollbar-width:none] [&::-webkit-scrollbar]:hidden text-white">
@@ -45,11 +48,24 @@ function MediaInfo({ media }: MediaInfoProps) {
         alt={media.name}
         className=" w-full object-cover"
       />
-
+     
+      
       <div className="mt-1 p-2">
         <h1 className="break-words text-[20px] font-alexandria font-[700]">
           {media.name}
         </h1>
+      
+        <div className="flex flex-wrap gap-2 p-2">
+        {media.tags.map((tag) => (
+          <span
+            key={tag.id}
+            className="rounded bg-botao px-2 py-1 text-white"
+          >
+            {tag.name}
+          </span>
+        ))}
+       </div>
+
         <p className="mt-2 text-sm text-gray-400 font-alexandria font-[500]">
           Tamanho: {formatarTamanho(media.size)}
         </p>
@@ -66,7 +82,8 @@ function MediaInfo({ media }: MediaInfoProps) {
           Modificado em: {formatarData(media.modifiedAt)}
         </p>
       </div>
-      <Tagbutton media={media} />
+      <Tagbutton media={media} onAddTag={onAddTag}/>
+      
     </aside>
 
   );
