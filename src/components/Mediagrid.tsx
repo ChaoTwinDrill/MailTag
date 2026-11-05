@@ -3,14 +3,16 @@ import MediaCard from './Mediacard';
 import MediaInfo from './MediaInfo';
 import Tagbutton from './Tagbutton';
 
+
 type MediagridProps = {
   medias : Media[];
   onSelectMedia: (media: Media | null) => void;
   selectedMedia: Media | null;
   onAddTag: (mediaId: string, nomeTag: string) => void;
+  onRemoveTag: (mediaId: string, tagId: string) => void;
 };
 
-function Mediagrid({ medias, onSelectMedia, selectedMedia, onAddTag }: MediagridProps) {
+function Mediagrid({ medias, onSelectMedia, selectedMedia, onAddTag, onRemoveTag }: MediagridProps) {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
 
@@ -31,6 +33,7 @@ function Mediagrid({ medias, onSelectMedia, selectedMedia, onAddTag }: Mediagrid
 </div>
       <MediaInfo media={selectedMedia}  
       onAddTag={onAddTag}
+      onRemoveTag={onRemoveTag}
       />
 
     </div>

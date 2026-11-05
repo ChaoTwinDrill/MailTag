@@ -5,9 +5,11 @@ import { FaSearch, FaFilter } from "react-icons/fa";
 
 type HeaderProps = {
   onImport: (medias: Media[]) => void;
+  buscaTag: string;
+  onBuscaTag:(busca: string) => void;
 };
 
-function Header({ onImport }: HeaderProps) {
+function Header({ onImport, buscaTag, onBuscaTag }: HeaderProps) {
   return (
     <header className="h-20 bg-base border-b-20 border-border flex items-center px-4 gap-5">
 
@@ -24,6 +26,8 @@ function Header({ onImport }: HeaderProps) {
           id="busca"
           placeholder="Digite o que procura..."
           className="focus:outline-none w-full text-white"
+          value={buscaTag}
+          onChange={(e) => onBuscaTag(e.target.value)}
         />
       </form>
 

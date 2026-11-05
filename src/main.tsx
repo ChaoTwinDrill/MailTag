@@ -10,6 +10,7 @@ const mediasIniciais: Media[] = [];
 function App() {
   const [medias, setMedias] = useState<Media[]>(mediasIniciais);
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
+  const [buscaTag, setBuscaTag] = useState("");
 
 function adicionarTag(mediaId: string, nomeTag: string) {
   const novaTag = {
@@ -37,6 +38,28 @@ function adicionarTag(mediaId: string, nomeTag: string) {
   });
 }
 
+function removerTag(mediaId: string, tagId: string) {
+  setMedias((mediasAntigas) =>
+    mediasAntigas.map((media) =>
+      media.id === mediaId
+        ? {
+            ...media,
+            tags: media.tags.filter((tag) => tag.id !== tagId),
+          }
+        : media
+    )
+  );
+
+  setSelectedMedia((mediaAtual) => {
+    if (!mediaAtual || mediaAtual.id !== mediaId) return mediaAtual;
+
+    return {
+      ...mediaAtual,
+      tags: mediaAtual.tags.filter((tag) => tag.id !== tagId),
+    };
+  });
+}
+
   function adicionarMedias(novasMedias: Media[]) {
       setMedias((mediasAntigas) => [
         ...mediasAntigas,
@@ -44,15 +67,24 @@ function adicionarTag(mediaId: string, nomeTag: string) {
       ]);
     }
 
+    const mediasFiltradas = medias.filter((media) =>
+      buscaTag.trim() === "" ||
+      (media.tags ?? []).some((tag) =>
+        tag.name.toLowerCase().includes(buscaTag.toLowerCase())
+      )
+    );
     return (
       <main className="flex h-screen flex-col overflow-hidden">
-        <Header onImport={adicionarMedias} />
+        <Header onImport={adicionarMedias}
+         buscaTag ={buscaTag}
+         onBuscaTag={setBuscaTag} />
 
         <Mediagrid 
-          medias={medias} 
+          medias={mediasFiltradas} 
           selectedMedia={selectedMedia}
           onSelectMedia={setSelectedMedia}
           onAddTag={adicionarTag}
+          onRemoveTag={removerTag}
   />
       </main>
     );

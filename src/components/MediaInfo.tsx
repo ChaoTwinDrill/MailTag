@@ -4,6 +4,7 @@ import type { Media } from "./types/media";
 interface MediaInfoProps {
   media: Media | null;
   onAddTag: (mediaId: string, nomeTag: string) => void;
+  onRemoveTag: (mediaId: string, tagId: string) => void;
 }
 
 
@@ -27,7 +28,7 @@ function formatarData(data: Date) {
   return data.toLocaleString("pt-BR");
 }
 
-function MediaInfo({ media, onAddTag }: MediaInfoProps) {
+function MediaInfo({ media, onAddTag, onRemoveTag }: MediaInfoProps) {
   if (!media) {
     return (
       <aside className="w-1/4 shrink-0 bg-base [scrollbar-width:none] [&::-webkit-scrollbar]:hidden text-white">
@@ -54,17 +55,25 @@ function MediaInfo({ media, onAddTag }: MediaInfoProps) {
         <h1 className="break-words text-[20px] font-alexandria font-[700]">
           {media.name}
         </h1>
-      
-        <div className="flex flex-wrap gap-2 p-2">
-        {media.tags.map((tag) => (
-          <span
-            key={tag.id}
-            className="rounded bg-botao px-2 py-1 text-white"
-          >
-            {tag.name}
-          </span>
-        ))}
-       </div>
+
+        {media.tags.length > 0 && (
+          <div className="flex flex-wrap gap-2 p-2 bg-fundo border-t-20 border-b-15 rounded-t-lg rounded-b-lg border-borda-tag">
+            {media.tags.map((tag) => (
+              <span
+                key={tag.id}
+                onMouseDown={(e) => {
+                  if (e.button === 1) {
+                    e.preventDefault();
+                    onRemoveTag(media.id, tag.id);
+                  }
+                }}
+                className="rounded bg-botao px-2 py-1 text-white cursor-pointer"
+              >
+                {tag.name}
+              </span>
+            ))}
+          </div>
+        )}
 
         <p className="mt-2 text-sm text-gray-400 font-alexandria font-[500]">
           Tamanho: {formatarTamanho(media.size)}
