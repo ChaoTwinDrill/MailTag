@@ -1,0 +1,1 @@
+export const LIBRARY_ID = import.meta.env.VITE_LIBRARY_ID;

@@ -1,7 +1,35 @@
-# Tauri + React + Typescript
+# MailTag
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+## Como executar
 
-## Recommended IDE Setup
+1. Clone o repositório:
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+   ```bash
+   git clone https://github.com/ChaoTwinDrill/MailTag.git
+   ```
+
+2. Entre na pasta do projeto:
+
+   ```bash
+   cd MailTag
+   ```
+
+3. Instale as dependências:
+
+   ```bash
+   npm install
+   ```
+
+4. Execute o aplicativo:
+
+   ```bash
+   npm run tauri dev
+   ```
+
+## Status do projeto
+
+Em desenvolvimento.
+
+---
+
+Desenvolvido por Ori e Chão <3

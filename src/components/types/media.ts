@@ -1,15 +1,16 @@
 import { tags } from "./tag";
 
-export interface Media 
-{
+export interface Media {
     id: string;
+    libraryId: string;
     name: string;
     src: string;
+    r2Key: string;
+    mimeType: string | null;
     size: number;
-    createdAt: Date;
-    modifiedAt: Date;
-    width: number;
-    height: number;
+    createdAt: Date | null;
+    modifiedAt: Date | null;
+    width: number | null;
+    height: number | null;
     tags: tags[];
 }
-

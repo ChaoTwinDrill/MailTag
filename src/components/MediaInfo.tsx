@@ -24,7 +24,11 @@ function formatarTamanho(bytes: number) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-function formatarData(data: Date) {
+function formatarData(data: Date | null) {
+  if (!data) {
+    return "Não disponível";
+  }
+
   return data.toLocaleString("pt-BR");
 }
 
