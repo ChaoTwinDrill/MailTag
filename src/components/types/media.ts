@@ -1,4 +1,4 @@
-import { tags } from "./tag";
+import type { tags } from "./tag";
 
 export interface Media {
     id: string;
@@ -13,4 +13,7 @@ export interface Media {
     width: number | null;
     height: number | null;
     tags: tags[];
+    extension: string | undefined;
+    thumbnailR2Key: string | null;
+    thumbnailSrc: string;
 }

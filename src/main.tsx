@@ -1,4 +1,4 @@
-
+import { obterArquivoCacheado } from "./lib/cache";
 import { useState, useEffect } from "react";
 import type { User } from "@supabase/supabase-js";
 import ReactDOM from "react-dom/client";
@@ -136,6 +136,9 @@ function App() {
           : null,
         width: media.width,
         height: media.height,
+        extension: media.name.split(".").pop()?.toLowerCase(),
+        thumbnailR2Key: media.thumbnail_r2_key,
+        thumbnailSrc: "",
         tags: tagsConvertidas.filter((tag) =>
           associacoes.some(
             (associacao) =>
@@ -155,6 +158,38 @@ function App() {
 
     carregarGaleria();
   }, [user]);
+
+  async function selecionarMedia(media: Media | null) {
+    if (!media) {
+      setSelectedMedia(null);
+      return;
+    }
+
+    // Exibe imediatamente as informações da mídia
+    setSelectedMedia(media);
+
+    // Se o original já estiver carregado, não precisa baixar novamente
+    if (media.src) return;
+
+    try {
+      const src = await obterArquivoCacheado(media.r2Key);
+
+      // Atualiza a mídia na galeria
+      setMedias((mediasAntigas) =>
+        mediasAntigas.map((m) =>
+          m.id === media.id ? { ...m, src } : m
+        )
+      );
+
+      // Atualiza a mídia selecionada
+      setSelectedMedia((atual) =>
+        atual?.id === media.id ? { ...atual, src } : atual
+      );
+
+    } catch (erro) {
+      console.error("Erro ao carregar original:", erro);
+    }
+  }
 
   // Adicionar tag
       async function adicionarTag(mediaId: string, nomeTag: string) {
@@ -312,7 +347,7 @@ function App() {
       <Mediagrid
         medias={mediasFiltradas}
         selectedMedia={selectedMedia}
-        onSelectMedia={setSelectedMedia}
+        onSelectMedia={selecionarMedia}
         onAddTag={adicionarTag}
         onRemoveTag={removerTag}
       />
