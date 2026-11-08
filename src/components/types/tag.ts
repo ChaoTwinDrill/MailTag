@@ -10,4 +10,5 @@ export interface tags {
     hasBorder: boolean;
     borderColor: string | null;
     textColor: string | null;
+    priority: number | null;
 }

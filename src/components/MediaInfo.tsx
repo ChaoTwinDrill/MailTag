@@ -11,6 +11,7 @@ interface MediaInfoProps {
   onAddTag: (mediaId: string, nomeTag: string) => void;
   onRemoveTag: (mediaId: string, tagId: string) => void;
   onDeleteTag: (tagId: string) => void;
+  onOpenViewer: () => void;
   onCustomizeTag: (
     tagId: string,
     nome: string,
@@ -18,7 +19,8 @@ interface MediaInfoProps {
     corTexto: string | null,
     temBorda: boolean,
     corBorda: string | null,
-    parentTagId: string | null
+    parentTagId: string | null,
+    prioridade: number | null
     ) => void;
   onRenameMedia: (mediaId: string, novoNome: string) => void;
   onCreateCategory: (nome: string) => Promise<tags | null>;
@@ -46,7 +48,9 @@ function MediaInfo({
   onDeleteTag,
   onCustomizeTag,
   onCreateCategory,
-  onRenameMedia
+  onRenameMedia,
+  onOpenViewer, 
+  
 }: MediaInfoProps) {
   const [menu, setMenu] = useState<{
     tag: tags;
@@ -67,6 +71,7 @@ function MediaInfo({
   const [editandoNome, setEditandoNome] = useState(false);
   const [nomeEditado, setNomeEditado] = useState("");
   const cancelouNome = useRef(false);
+  const [prioridade, setPrioridade] = useState("");
 
   // Categoria digitada que ainda não existe: só é criada ao salvar
   const [categoriaNova, setCategoriaNova] = useState<string | null>(null);
@@ -135,7 +140,7 @@ function MediaInfo({
     setCorTexto(tag.textColor ?? "#ffffff");
     setTemBorda(tag.hasBorder);
     setCorBorda(tag.borderColor ?? "#ffffff");
-
+    setPrioridade(tag.priority?.toString() ?? "");
     setParentTagId(tag.parentTagId);
     setBuscaCategoria(categoriaAtual?.name ?? "");
     setCategoriaNova(null);
@@ -147,7 +152,7 @@ function MediaInfo({
 
   async function salvarPersonalizacao() {
     if (!tagPersonalizando) return;
-
+    const numero = prioridade.trim() === "" ? null : Number(prioridade);
     const nomeLimpo = nome.trim();
 
     if (!nomeLimpo) {
@@ -173,7 +178,8 @@ function MediaInfo({
       corTexto,
       temBorda,
       corBorda,
-      categoriaId
+      categoriaId,
+      Number.isFinite(numero) ? numero : null
     );
 
     setTagPersonalizando(null);
@@ -252,10 +258,11 @@ function MediaInfo({
                   className="w-full"
                 />
               ) : media.src || previa ? (
-                <img
+               <img
                   src={media.src || previa}
                   alt={media.name}
-                  className="w-full object-cover"
+                  onDoubleClick={onOpenViewer}
+                  className="w-full cursor-zoom-in object-cover"
                 />
               ) : (
                 <div
@@ -320,7 +327,20 @@ function MediaInfo({
         grupos[chave].tags.push(tag);
         return grupos;
       }, {})
-    ).map(([id, grupo]) => (
+      
+    )
+    .sort(([, a], [, b]) => {
+    if (!a.categoria) return 1;
+    if (!b.categoria) return -1;
+
+    const pa = a.categoria.priority ?? Infinity;
+    const pb = b.categoria.priority ?? Infinity;
+
+    if (pa !== pb) return pa - pb;
+
+    return a.categoria.name.localeCompare(b.categoria.name, "pt-BR");
+  })
+    .map(([id, grupo]) => (
       <div
         key={id}
         className="relative min-w-0 mt-3 p-2 bg-fundo border-t-25 border-b-15 rounded-t-lg rounded-b-lg border-card"
@@ -559,7 +579,21 @@ function MediaInfo({
                 </div>
               )}
             </div>
-
+              {temFilhas && (
+                <>
+                  <label className="mb-2 block text-sm text-gray-300">
+                    Prioridade da categoria
+                  </label>
+                  <input
+                    type="number"
+                    step={1}
+                    value={prioridade}
+                    onChange={(e) => setPrioridade(e.target.value)}
+                    placeholder="Menor número = aparece primeiro"
+                    className="mb-5 w-full rounded-md bg-fundo p-2 outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                </>
+              )}
             {/* Cor de fundo */}
             <label className="mb-2 block text-sm text-gray-300">
               Cor de fundo

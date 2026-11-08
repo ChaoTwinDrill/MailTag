@@ -13,13 +13,15 @@ interface MediaCardProps {
     onSelectMedia: (media: Media | null) => void;
     onContextMenu: (media: Media, x: number, y: number) => void;
     selected: boolean;
+    onOpen: (media: Media) => void;
 }
 
 function MediaCard({
     media,
     onSelectMedia,
     onContextMenu,
-    selected
+    selected,
+    onOpen,
 }: MediaCardProps) {
     const cardRef = useRef<HTMLDivElement>(null);
     const prefetchRef = useRef<number | null>(null);
@@ -96,7 +98,7 @@ function MediaCard({
                     : ""
             }`}
             style={proporcao ? { aspectRatio: proporcao } : undefined}
-            onClick={() => onSelectMedia(media)}
+            onClick={() => onSelectMedia(media)} onDoubleClick={() => onOpen(media)}
             onMouseEnter={iniciarPrefetch}
             onMouseLeave={cancelarPrefetch}
             onContextMenu={(e) => {

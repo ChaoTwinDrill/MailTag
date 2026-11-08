@@ -17,6 +17,8 @@
     "updater:default",
     "fs:allow-copy-file",
     "fs:allow-remove",
-    "process:allow-restart"
+    "process:allow-restart",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen"
   ]
 }

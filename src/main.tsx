@@ -2,6 +2,7 @@ import { obterArquivoCacheado, removerDoCache } from "./lib/cache";
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import ReactDOM from "react-dom/client";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import Auth from "./components/Auth.tsx";
 import Header from "./components/Header.tsx";
@@ -45,6 +46,7 @@ type Linha = Record<string, any>;
           hasBorder: tag.has_border,
           borderColor: tag.border_color,
           textColor: tag.text_color,
+          priority: tag.priority ?? null,
         };
       }
 
@@ -112,6 +114,25 @@ function App() {
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [gerenciadorAberto, setGerenciadorAberto] = useState(false);
   const todasTagsRef = useRef<tags[]>([]);
+
+    useEffect(() => {
+      async function aoTeclar(e: KeyboardEvent) {
+        if (e.key !== "F11") return;
+
+        e.preventDefault();
+
+        try {
+          const janela = getCurrentWindow();
+          await janela.setFullscreen(!(await janela.isFullscreen()));
+        } catch (erro) {
+          console.error("Erro ao alternar tela cheia:", erro);
+        }
+      }
+
+      window.addEventListener("keydown", aoTeclar);
+
+      return () => window.removeEventListener("keydown", aoTeclar);
+    }, []);
 
     useEffect(() => {
       todasTagsRef.current = todasTags;
@@ -311,19 +332,7 @@ function App() {
 
             if (cancelado) return;
 
-            const tagsConvertidas: tags[] = tagsBanco.map((tag) => ({
-              id: tag.id,
-              libraryId: tag.library_id,
-              name: tag.name,
-              color: tag.color,
-              description: tag.description,
-              parentTagId: tag.parent_tag_id,
-              createdAt: new Date(tag.created_at),
-              modifiedAt: new Date(tag.updated_at),
-              hasBorder: tag.has_border,
-              borderColor: tag.border_color,
-              textColor: tag.text_color,
-            }));
+           const tagsConvertidas: tags[] = tagsBanco.map(converterTag);
 
             // Índices para não percorrer as listas inteiras a cada mídia
             const tagPorId = new Map(tagsConvertidas.map((t) => [t.id, t]));
@@ -619,19 +628,7 @@ function App() {
     return null;
   }
 
-  const novaTag: tags = {
-    id: data.id,
-    libraryId: data.library_id,
-    name: data.name,
-    color: data.color,
-    description: data.description,
-    parentTagId: data.parent_tag_id,
-    createdAt: new Date(data.created_at),
-    modifiedAt: new Date(data.updated_at),
-    hasBorder: data.has_border,
-    borderColor: data.border_color,
-    textColor: data.text_color,
-  };
+  const novaTag = converterTag(data);
 
   setTodasTags((atuais) => [...atuais, novaTag]);
 
@@ -701,20 +698,7 @@ function App() {
       }
 
       // Converte os dados do Supabase para nossa interface
-      const novaTag: tags = {
-        id: tagExistente.id,
-        libraryId: tagExistente.library_id,
-        name: tagExistente.name,
-        color: tagExistente.color,
-        description: tagExistente.description,
-        parentTagId: tagExistente.parent_tag_id,
-        createdAt: new Date(tagExistente.created_at),
-        modifiedAt: new Date(tagExistente.updated_at),
-        hasBorder: tagExistente.has_border,
-        borderColor: tagExistente.border_color,
-        textColor: tagExistente.text_color,
-        
-      };
+      const novaTag: tags = converterTag(tagExistente);
 
       setTodasTags((atuais) => {
         if (atuais.some((tag) => tag.id === novaTag.id)) {
@@ -858,7 +842,8 @@ function App() {
           corTexto: string | null,
           temBorda: boolean,
           corBorda: string | null,
-          parentTagId: string | null
+          parentTagId: string | null,
+          prioridade: number | null
         ) {
           try {
             const nomeLimpo = nome.trim();
@@ -878,6 +863,7 @@ function App() {
                 updated_at: new Date().toISOString(),
                 text_color: corTexto,
                 parent_tag_id: parentTagId,
+                priority: prioridade,
               })
               .eq("library_id", LIBRARY_ID)
               .eq("id", tagId)
@@ -886,19 +872,7 @@ function App() {
 
             if (error) throw error;
 
-            const tagAtualizada: tags = {
-              id: data.id,
-              libraryId: data.library_id,
-              name: data.name,
-              color: data.color,
-              hasBorder: data.has_border,
-              borderColor: data.border_color,
-              description: data.description,
-              parentTagId: data.parent_tag_id,
-              createdAt: new Date(data.created_at),
-              modifiedAt: new Date(data.updated_at),
-              textColor: data.text_color,
-            };  
+            const tagAtualizada = converterTag(data);
 
               setTodasTags((atuais) =>
                 atuais.map((tag) =>
@@ -942,7 +916,11 @@ function App() {
             await relaunch();
           } catch (erro) {
             console.error("Erro ao atualizar aplicativo:", erro);
-            alert("Não foi possível atualizar o MailTag.");
+            alert(
+              `Não foi possível atualizar o MailTag.\n\n${
+                erro instanceof Error ? erro.message : String(erro)
+              }`
+            );
           } finally {
             setUpdating(false);
           }

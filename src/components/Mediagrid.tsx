@@ -4,6 +4,7 @@ import type { Media } from "./types/media";
 import MediaCard from "./Mediacard";
 import MediaInfo from "./MediaInfo";
 import type { tags } from "./types/tag";
+import MediaViewer from "./MediaViewer";
 
 const NUM_COLUNAS = 4;
 
@@ -14,6 +15,7 @@ type MediagridProps = {
     onAddTag: (mediaId: string, nomeTag: string) => void;
     onRemoveTag: (mediaId: string, tagId: string) => void;
     onDeleteMedia: (media: Media) => void;
+    
     onDeleteTag: (tagId: string) => void;
     onCustomizeTag: (
       tagId: string,
@@ -22,7 +24,8 @@ type MediagridProps = {
       corTexto: string | null,
       temBorda: boolean,
       corBorda: string | null,
-      parentTagId: string | null
+      parentTagId: string | null,
+      prioridade: number | null
     ) => void;
     allTags: tags[];
     onCreateCategory: (nome: string) => Promise<tags | null>;
@@ -40,14 +43,18 @@ function Mediagrid({
     onDeleteTag,
     onCustomizeTag,
     onCreateCategory,
-    onRenameMedia
+    onRenameMedia,
 }: MediagridProps) {
     const [menu, setMenu] = useState<{
         media: Media;
         x: number;
         y: number;
     } | null>(null);
+    const [visualizando, setVisualizando] = useState(false);
 
+    useEffect(() => {
+        if (!selectedMedia) setVisualizando(false);
+    }, [selectedMedia]);
 
     const colunas = useMemo(() => {
     const resultado: Media[][] = Array.from(
@@ -75,6 +82,7 @@ function Mediagrid({
             }
 
             if (e.key !== "Delete" || !selectedMedia) return;
+            if (visualizando) return;
             if (document.querySelector("[data-painel-filtros]")) return;
             const elemento = e.target as HTMLElement;
 
@@ -102,7 +110,21 @@ function Mediagrid({
     function abrirMenu(media: Media, x: number, y: number) {
         setMenu({ media, x, y });
     }
+    const posicao = selectedMedia
+    ? medias.findIndex((m) => m.id === selectedMedia.id)
+    : -1;
 
+    function abrirVisualizador(media: Media) {
+        setMenu(null);
+        onSelectMedia(media);
+        setVisualizando(true);
+    }
+
+    function navegar(delta: number) {
+        const destino = medias[posicao + delta];
+
+        if (destino) onSelectMedia(destino);
+    }
     return (
         <div className="flex min-h-0 flex-1 overflow-hidden">
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden p-5 bg-fundo">
@@ -113,6 +135,7 @@ function Mediagrid({
                                 <MediaCard
                                     key={media.id}
                                     media={media}
+                                    onOpen={abrirVisualizador}
                                     onSelectMedia={(selecionada) => {
                                         setMenu(null);
                                         onSelectMedia(selecionada);
@@ -121,6 +144,15 @@ function Mediagrid({
                                     selected={selectedMedia?.id === media.id}
                                 />
                             ))}
+                            {visualizando && selectedMedia && (
+                                <MediaViewer
+                                    media={selectedMedia}
+                                    posicao={posicao}
+                                    total={medias.length}
+                                    onNavegar={navegar}
+                                    onClose={() => setVisualizando(false)}
+                                />
+                            )}
                         </div>
                     ))}
                 </div>
@@ -128,6 +160,8 @@ function Mediagrid({
 
             <MediaInfo
               media={selectedMedia}
+              onOpenViewer={() => selectedMedia && setVisualizando(true)}
+              
               allTags={allTags}
               onAddTag={onAddTag}
               onRemoveTag={onRemoveTag}

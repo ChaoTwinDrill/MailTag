@@ -15,7 +15,8 @@ type TagManagerProps = {
     corTexto: string | null,
     temBorda: boolean,
     corBorda: string | null,
-    parentTagId: string | null
+    parentTagId: string | null,
+    prioridade: number | null
   ) => void;
   onDeleteTag: (tagId: string) => void;
   onCreateCategory: (nome: string) => Promise<tags | null>;
@@ -44,8 +45,8 @@ function TagManager({
   const [busca, setBusca] = useState("");
   const [novaTag, setNovaTag] = useState("");
   const [editando, setEditando] = useState<tags | null>(null);
-
-  const [nome, setNome] = useState("");
+  const [prioridade, setPrioridade] = useState("");
+  const [nome, setNome] = useState(""); 
   const [cor, setCor] = useState("#6366f1");
   const [corTexto, setCorTexto] = useState("#ffffff");
   const [temBorda, setTemBorda] = useState(false);
@@ -103,11 +104,12 @@ function TagManager({
     setCorBorda(tag.borderColor ?? "#ffffff");
     setParentTagId(tag.parentTagId);
     setEditando(tag);
+    setPrioridade(tag.priority?.toString() ?? "");
   }
 
   function salvar() {
     if (!editando) return;
-
+    const numero = prioridade.trim() === "" ? null : Number(prioridade);
     const nomeLimpo = nome.trim();
 
     if (!nomeLimpo) {
@@ -133,7 +135,8 @@ function TagManager({
       corTexto,
       temBorda,
       corBorda,
-      parentTagId
+      parentTagId,
+      Number.isFinite(numero) ? numero : null
     );
 
     setEditando(null);
@@ -227,8 +230,22 @@ function TagManager({
                 Esta tag já é categoria de outras tags, por isso não pode ter
                 categoria pai.
               </p>
+            )}  
+            {temFilhas && (
+              <>
+                <label className="mb-2 block text-sm text-gray-300">
+                  Prioridade da categoria
+                </label>
+                <input
+                  type="number"
+                  step={1}
+                  value={prioridade}
+                  onChange={(e) => setPrioridade(e.target.value)}
+                  placeholder="Menor número = aparece primeiro"
+                  className={`${classeCampo} mb-5`}
+                />
+              </>
             )}
-
             <label className="mb-2 block text-sm text-gray-300">
               Cor de fundo
             </label>
@@ -360,6 +377,7 @@ function TagManager({
                       </span>
 
                       <span className="min-w-0 flex-1 truncate text-xs text-gray-300">
+                        {tag.priority !== null && `Prioridade ${tag.priority} · `}
                         {categoria ? `${categoria.name} · ` : ""}
                         {usos} {usos === 1 ? "mídia" : "mídias"}
                       </span>
