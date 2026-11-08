@@ -1,10 +1,10 @@
 ﻿{
     "platforms":  {
                       "windows-x86_64":  {
-                                             "signature":  "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQVJ6MDk4T1RraEFDL0R3aTNZRUVNSkR2MUdIL28xWGdoWklSS1lLMEZ4MVo5S2c0YzJlbzlNc1QycEU3ZVI3RW1MQloyb3J4RnFHZE9mU1BoWUw1ZzE1c0x1bUY5eGdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MDk5MzQ5CWZpbGU6bWFpbHRhZ18wLjEuMF94NjQtc2V0dXAuZXhlCmd2VFg0b3l0c2dIQnhPWlcwMDdsTG5URjRaY1ZaMS9hTGFYeGtBNC80VDloL0dDZ1FIQUZZOXY2WEZZUUl5YTBBUlZMT29zb2REZy95Q1JQYitZdUJBPT0K",
-                                             "url":  "https://github.com/ChaoTwinDrill/MailTag/releases/download/v0.1.0/mailtag_0.1.0_x64-setup.exe"
+                                             "signature":  "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQVJ6MDk4T1RraFBLNkhxVUFEQSsxU0s4T0JYbjFHOTJKb01OeWdoa3ZiRjBLY3ExQTB6Z1JzM2lHaTZ5dWRWeG5ZejJQOUUyZVBKVDNGajFOU0pzZlk0dFd2aHM5WkFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MTYzMDIwCWZpbGU6TWFpbFRhZ18wLjIuMV94NjQtc2V0dXAuZXhlCllUL1RmVE9jUWZLYS9sNTlrSWx4alBhVmNRT1hrdWxQVnlQbXFYVnAvcVFBaWJCWnRKdWEyZlIwREVzUVQ2NmplbG1LcWRYa1BjalhyOHpIVG1KOER3PT0K",
+                                             "url":  "https://github.com/ChaoTwinDrill/MailTag/releases/download/v0.2.1/mailtag_0.2.1_x64-setup.exe"
                                          }
                   },
-    "version":  "0.1.0",
-    "notes":  "Primeira versão do MailTag."
+    "version":  "0.2.1",
+    "notes":  "Atualização do MailTag 0.2.1"
 }
