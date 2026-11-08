@@ -52,6 +52,9 @@ function Tagbutton({ media, allTags, onAddTag }: TagbuttonProps) {
     function lidarComTecla(e: KeyboardEvent) {
       if (e.key !== "Enter" || criarTagUwU) return;
 
+      // Não abre o campo de tag por baixo do painel de filtros
+      if (document.querySelector("[data-painel-filtros]")) return;
+
       const elemento = e.target as HTMLElement;
 
       if (
@@ -102,6 +105,7 @@ function Tagbutton({ media, allTags, onAddTag }: TagbuttonProps) {
           <input
             className="bg-botao text-white py-1 w-full font-Alexandria font-[500] pl-2 focus:outline-none"
             autoFocus
+            autoComplete="off"
             placeholder="Digite uma tag..."
             value={tagNoime}
             onChange={(e) => setTagNoime(e.target.value)}

@@ -3,7 +3,7 @@ import type { Media } from "./types/media";
 import type { tags } from "./types/tag";
 
 import ImportButton from "./Importbutton";
-import { FaSearch, FaFilter, FaUserCircle, FaTimes } from "react-icons/fa";
+import { FaSearch, FaFilter, FaTags, FaUserCircle, FaTimes } from "react-icons/fa";
 import { supabase } from "../lib/supabase";
 
 type HeaderProps = {
@@ -16,6 +16,11 @@ type HeaderProps = {
   updateAvailable: boolean;
   updating: boolean;
   onUpdate: () => void;
+  filtrosAbertos: boolean;
+  totalFiltrosAtivos: number;
+  onToggleFiltros: () => void;
+  gerenciadorAberto: boolean;
+  onToggleGerenciador: () => void;
 };
 
 function Header({
@@ -28,6 +33,11 @@ function Header({
   updating,
   onUpdate,
   updateAvailable,
+  filtrosAbertos,
+  totalFiltrosAtivos,
+  onToggleFiltros,
+  gerenciadorAberto,
+  onToggleGerenciador,
 }: HeaderProps) {
   const [menuAberto, setMenuAberto] = useState(false);
   const [textoBusca, setTextoBusca] = useState("");
@@ -85,6 +95,7 @@ function Header({
     <header className="h-20 bg-base border-b-20 border-border flex items-center px-4 gap-5">
       <form
         role="search"
+        autoComplete="off"
         onSubmit={(e) => {
           e.preventDefault();
           confirmarBusca();
@@ -128,6 +139,7 @@ function Header({
           <input
             type="text"
             id="busca"
+            autoComplete="off"
             placeholder={
               buscaTagIds.length > 0
                 ? "Adicionar outra tag..."
@@ -184,10 +196,38 @@ function Header({
 
       <ImportButton onImport={onImport} />
 
-      <button type="button">
-        <FaFilter className="text-white w-15 h-7" />
-      </button>
+      <button
+        type="button"
+        onClick={onToggleFiltros}
+        title="Filtros"
+        aria-pressed={filtrosAbertos}
+        className="relative hover:opacity-70"
+      >
+        <FaFilter
+          className={`w-15 h-7 ${
+            filtrosAbertos ? "text-botao-claro" : "text-white"
+          }`}
+        />
 
+        {totalFiltrosAtivos > 0 && (
+          <span className="absolute -right-1 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-botao-claro px-1 text-xs font-bold text-fundo">
+            {totalFiltrosAtivos}
+          </span>
+        )}
+      </button>
+        <button
+              type="button"
+              onClick={onToggleGerenciador}
+              title="Gerenciar tags"
+              aria-pressed={gerenciadorAberto}
+              className="hover:opacity-70"
+            >
+              <FaTags
+                className={`h-7 w-7 ${
+            gerenciadorAberto ? "text-botao-claro" : "text-white"
+            }`}
+          />
+          </button>
       <div className="relative ml-auto">
         <button
           onClick={() => setMenuAberto(!menuAberto)}
@@ -236,9 +276,13 @@ function Header({
                 Entrar
               </button>
             )}
+
           </div>
+        
         )}
+         
       </div>
+      
     </header>
   );
 }

@@ -1,11 +1,12 @@
-import { obterArquivoCacheado } from "./lib/cache";
-import { useState, useEffect } from "react";
+import { obterArquivoCacheado, removerDoCache } from "./lib/cache";
+import { useState, useEffect, useMemo, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import ReactDOM from "react-dom/client";
 
 import Auth from "./components/Auth.tsx";
 import Header from "./components/Header.tsx";
 import Mediagrid from "./components/Mediagrid.tsx";
+import TagManager from "./components/TagManager.tsx";
 
 import { supabase } from "./lib/supabase";
 import { LIBRARY_ID } from "./lib/library";
@@ -15,10 +16,83 @@ import type { tags } from "./components/types/tag.ts";
 
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import FilterPanel from "./components/FilterPanel.tsx";
+import {
+  FILTROS_PADRAO,
+  contarFiltrosAtivos,
+  filtrarMedias,
+  type Filtros,
+} from "./lib/filtros";
+
 
 import "./global.css";
 
   const WORKER_URL = "https://mailtag-api.oririkkj.workers.dev";
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Linha = Record<string, any>;
+
+      function converterTag(tag: Linha): tags {
+        return {
+          id: tag.id,
+          libraryId: tag.library_id,
+          name: tag.name,
+          color: tag.color,
+          description: tag.description,
+          parentTagId: tag.parent_tag_id,
+          createdAt: new Date(tag.created_at),
+          modifiedAt: new Date(tag.updated_at),
+          hasBorder: tag.has_border,
+          borderColor: tag.border_color,
+          textColor: tag.text_color,
+        };
+      }
+
+      function converterMedia(media: Linha): Media {
+        return {
+          id: media.id,
+          libraryId: media.library_id,
+          name: media.name,
+          src: "",
+          r2Key: media.r2_key,
+          mimeType: media.mime_type,
+          size: Number(media.size_bytes),
+          createdAt: media.file_created_at ? new Date(media.file_created_at) : null,
+          modifiedAt: media.file_modified_at ? new Date(media.file_modified_at) : null,
+          width: media.width,
+          height: media.height,
+          extension: media.name.split(".").pop()?.toLowerCase(),
+          thumbnailR2Key: media.thumbnail_r2_key,
+          thumbnailSrc: "",
+          tags: [],
+        };
+      }
+
+  async function buscarTodos<T>(
+  consulta: (
+    de: number,
+    ate: number
+  ) => PromiseLike<{ data: T[] | null; error: unknown }>
+): Promise<T[]> {
+  const TAMANHO_PAGINA = 1000;
+  const todos: T[] = [];
+
+  for (let inicio = 0; ; inicio += TAMANHO_PAGINA) {
+    const { data, error } = await consulta(
+      inicio,
+      inicio + TAMANHO_PAGINA - 1
+    );
+
+    if (error) throw error;
+    if (!data) break;
+
+    todos.push(...data);
+
+    if (data.length < TAMANHO_PAGINA) break;
+  }
+
+  return todos;
+}
 
 function App() {
   const [medias, setMedias] = useState<Media[]>([]);
@@ -32,8 +106,16 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [verificandoSessao, setVerificandoSessao] = useState(true);
   const [galeriaCarregada, setGaleriaCarregada] = useState(false);
-  
+  const [erroCarregamento, setErroCarregamento] = useState<string | null>(null);
+  const [tentativaGaleria, setTentativaGaleria] = useState(0);
+  const [filtros, setFiltros] = useState<Filtros>(FILTROS_PADRAO);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [gerenciadorAberto, setGerenciadorAberto] = useState(false);
+  const todasTagsRef = useRef<tags[]>([]);
 
+    useEffect(() => {
+      todasTagsRef.current = todasTags;
+    }, [todasTags]);
   // Autenticação
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -80,182 +162,402 @@ function App() {
 
           // Excluir mídia
     async function removerMedia(media: Media) {
-      try {
         const { data, error } = await supabase.auth.getSession();
 
         if (error || !data.session) {
-          throw new Error("Usuário não autenticado.");
+          alert("Usuário não autenticado.");
+          return;
         }
 
-        // Remover associações com tags
-        const { error: erroTags } = await supabase
-          .from("media_tags")
-          .delete()
-          .eq("library_id", LIBRARY_ID)
-          .eq("media_id", media.id);
+        const token = data.session.access_token;
 
-        if (erroTags) throw erroTags;
+        // 1) Banco de dados
+        try {
+          const { error: erroTags } = await supabase
+            .from("media_tags")
+            .delete()
+            .eq("library_id", LIBRARY_ID)
+            .eq("media_id", media.id);
 
-        // Remover registro da mídia
-        const { error: erroMedia } = await supabase
-          .from("medias")
-          .delete()
-          .eq("library_id", LIBRARY_ID)
-          .eq("id", media.id);
+          if (erroTags) throw erroTags;
 
-        if (erroMedia) throw erroMedia;
+          const { error: erroMedia } = await supabase
+            .from("medias")
+            .delete()
+            .eq("library_id", LIBRARY_ID)
+            .eq("id", media.id);
 
-        // Remover arquivos do R2
-        const resposta = await fetch(WORKER_URL, {
-          method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${data.session.access_token}`,
-            "X-Library-Id": LIBRARY_ID,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            key: media.r2Key,
-            thumbnailKey: media.thumbnailR2Key,
-          }),
-        });
-
-        const resultado = await resposta.json();
-
-        if (!resposta.ok) {
-          throw new Error(resultado.error || "Erro ao excluir arquivos do R2.");
+          if (erroMedia) throw erroMedia;
+        } catch (erro) {
+          console.error("Erro ao excluir mídia:", erro);
+          alert("Não foi possível excluir a mídia. Verifique o console.");
+          return;
         }
 
-        // Atualizar a galeria
-        setMedias((atuais) =>
-          atuais.filter((m) => m.id !== media.id)
-        );
+        // 2) O registro já não existe: tira da tela e do cache local
+        setMedias((atuais) => atuais.filter((m) => m.id !== media.id));
+        setSelectedMedia((atual) => (atual?.id === media.id ? null : atual));
+        await removerDoCache([media.r2Key, media.thumbnailR2Key]);
 
-        setSelectedMedia((atual) =>
-          atual?.id === media.id ? null : atual
-        );
+        // 3) Arquivos na nuvem (se falhar, só avisa)
+        try {
+          const resposta = await fetch(WORKER_URL, {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "X-Library-Id": LIBRARY_ID,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              key: media.r2Key,
+              thumbnailKey: media.thumbnailR2Key,
+            }),
+          });
 
-      } catch (erro) {
-        console.error("Erro ao excluir mídia:", erro);
-        alert("Não foi possível concluir a exclusão. Verifique o console.");
+          if (!resposta.ok) {
+            const resultado = await resposta.json().catch(() => ({}));
+            throw new Error(resultado.error || `Status ${resposta.status}`);
+          }
+        } catch (erro) {
+          console.error("Mídia excluída, mas os arquivos ficaram no R2:", media.r2Key, erro);
+          alert("A mídia foi excluída, mas os arquivos na nuvem não puderam ser removidos.");
+        }
       }
-    }
+
+      async function renomearMedia(mediaId: string, novoNome: string) {
+  const nome = novoNome.trim();
+
+  if (!nome) return;
+
+  const { error } = await supabase
+    .from("medias")
+    .update({ name: nome, updated_at: new Date().toISOString() })
+    .eq("library_id", LIBRARY_ID)
+    .eq("id", mediaId);
+
+  if (error) {
+    console.error("Erro ao renomear mídia:", error);
+    alert("Não foi possível renomear a mídia.");
+    return;
+  }
+
+  setMedias((atuais) =>
+    atuais.map((m) => (m.id === mediaId ? { ...m, name: nome } : m))
+  );
+
+  setSelectedMedia((atual) =>
+    atual?.id === mediaId ? { ...atual, name: nome } : atual
+  );
+}
 
   // Carregar galeria, mídias e tags
-  useEffect(() => {
-    async function carregarGaleria() {
-      if (!user) {
-        setGaleriaCarregada(false);
-        setMedias([]);
-        setSelectedMedia(null);
-        return;
+ useEffect(() => {
+        let cancelado = false;
+
+        async function carregarGaleria() {
+          if (!user) {
+            setGaleriaCarregada(false);
+            setErroCarregamento(null);
+            setMedias([]);
+            setSelectedMedia(null);
+            return;
+          }
+
+          setGaleriaCarregada(false);
+          setErroCarregamento(null);
+
+          try {
+            const { data: galeria, error: erroGaleria } = await supabase
+              .from("libraries")
+              .select("id, name")
+              .eq("id", LIBRARY_ID)
+              .single();
+
+            if (erroGaleria) throw erroGaleria;
+
+            console.log("Galeria carregada:", galeria);
+
+            // A ordenação mantém as páginas estáveis entre as consultas
+            const [midias, associacoes, tagsBanco] = await Promise.all([
+              buscarTodos((de, ate) =>
+                supabase
+                  .from("medias")
+                  .select("*")
+                  .eq("library_id", LIBRARY_ID)
+                  .is("deleted_at", null)
+                  .order("created_at", { ascending: false })
+                  .order("id") // desempate para a paginação ficar estável
+                  .range(de, ate)
+              ),
+              buscarTodos((de, ate) =>
+                supabase
+                  .from("media_tags")
+                  .select("media_id, tag_id")
+                  .eq("library_id", LIBRARY_ID)
+                  .order("media_id")
+                  .order("tag_id")
+                  .range(de, ate)
+              ),
+              buscarTodos((de, ate) =>
+                supabase
+                  .from("tags")
+                  .select("*")
+                  .eq("library_id", LIBRARY_ID)
+                  .is("deleted_at", null)
+                  .order("id")
+                  .range(de, ate)
+              ),
+            ]);
+
+            if (cancelado) return;
+
+            const tagsConvertidas: tags[] = tagsBanco.map((tag) => ({
+              id: tag.id,
+              libraryId: tag.library_id,
+              name: tag.name,
+              color: tag.color,
+              description: tag.description,
+              parentTagId: tag.parent_tag_id,
+              createdAt: new Date(tag.created_at),
+              modifiedAt: new Date(tag.updated_at),
+              hasBorder: tag.has_border,
+              borderColor: tag.border_color,
+              textColor: tag.text_color,
+            }));
+
+            // Índices para não percorrer as listas inteiras a cada mídia
+            const tagPorId = new Map(tagsConvertidas.map((t) => [t.id, t]));
+            const tagsPorMidia = new Map<string, tags[]>();
+
+            for (const associacao of associacoes) {
+              const tag = tagPorId.get(associacao.tag_id);
+              if (!tag) continue;
+
+              const lista = tagsPorMidia.get(associacao.media_id);
+              if (lista) lista.push(tag);
+              else tagsPorMidia.set(associacao.media_id, [tag]);
+            }
+
+            const midiasConvertidas: Media[] = midias.map((media) => ({
+              id: media.id,
+              libraryId: media.library_id,
+              name: media.name,
+              src: "",
+              r2Key: media.r2_key,
+              mimeType: media.mime_type,
+              size: Number(media.size_bytes),
+              createdAt: media.file_created_at ? new Date(media.file_created_at) : null,
+              modifiedAt: media.file_modified_at ? new Date(media.file_modified_at) : null,
+              width: media.width,
+              height: media.height,
+              extension: media.name.split(".").pop()?.toLowerCase(),
+              thumbnailR2Key: media.thumbnail_r2_key,
+              thumbnailSrc: "",
+              tags: tagsPorMidia.get(media.id) ?? [],
+            }));
+
+            setTodasTags(tagsConvertidas);
+            setMedias(midiasConvertidas);
+            setSelectedMedia(null);
+            setGaleriaCarregada(true);
+          } catch (erro) {
+            if (cancelado) return;
+
+            console.error("Erro ao carregar galeria:", erro);
+            setErroCarregamento(
+              (erro as { message?: string })?.message ?? "Erro desconhecido."
+            );
+          }
+        }
+
+        carregarGaleria();
+
+        return () => {
+          cancelado = true;
+        };
+      }, [user, tentativaGaleria]);
+
+      useEffect(() => {
+  if (!user || !galeriaCarregada) return;
+
+  const filtro = `library_id=eq.${LIBRARY_ID}`;
+
+  function aplicarTag(tag: tags) {
+    const trocar = (lista: tags[]) =>
+      lista.map((t) => (t.id === tag.id ? tag : t));
+    const usa = (m: Media) => m.tags.some((t) => t.id === tag.id);
+
+    setTodasTags((atuais) =>
+      atuais.some((t) => t.id === tag.id)
+        ? trocar(atuais)
+        : [...atuais, tag]
+    );
+    setMedias((atuais) =>
+      atuais.map((m) => (usa(m) ? { ...m, tags: trocar(m.tags) } : m))
+    );
+    setSelectedMedia((atual) =>
+      atual && usa(atual) ? { ...atual, tags: trocar(atual.tags) } : atual
+    );
+  }
+
+  function removerTagLocal(tagId: string) {
+    const sem = (m: Media): Media => ({
+      ...m,
+      tags: m.tags.filter((t) => t.id !== tagId),
+    });
+
+    setTodasTags((atuais) => atuais.filter((t) => t.id !== tagId));
+    setBuscaTagIds((atuais) => atuais.filter((id) => id !== tagId));
+    setMedias((atuais) => atuais.map(sem));
+    setSelectedMedia((atual) => (atual ? sem(atual) : atual));
+  }
+
+  function removerMediaLocal(mediaId: string) {
+    setMedias((atuais) => atuais.filter((m) => m.id !== mediaId));
+    setSelectedMedia((atual) => (atual?.id === mediaId ? null : atual));
+  }
+
+  const canal = supabase
+    .channel(`galeria-${LIBRARY_ID}`)
+
+    // Mídias
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "medias", filter: filtro },
+      (payload) => {
+        const linha = payload.new as Linha;
+        if (linha.deleted_at) return;
+
+        const nova = converterMedia(linha);
+
+        setMedias((atuais) =>
+          atuais.some((m) => m.id === nova.id) ? atuais : [nova, ...atuais]
+        );
       }
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "medias", filter: filtro },
+      (payload) => {
+        const linha = payload.new as Linha;
 
-      setGaleriaCarregada(false);
+        if (linha.deleted_at) {
+          removerMediaLocal(linha.id);
+          return;
+        }
 
-      // Buscar galeria
-      const { data: galeria, error: erroGaleria } = await supabase
-        .from("libraries")
-        .select("id, name")
-        .eq("id", LIBRARY_ID)
-        .single();
+        const atualizar = (m: Media): Media =>
+          m.id === linha.id
+            ? {
+                ...m,
+                name: linha.name,
+                extension: linha.name.split(".").pop()?.toLowerCase(),
+              }
+            : m;
 
-      if (erroGaleria) {
-        console.error("Erro ao carregar galeria:", erroGaleria);
-        return;
+        setMedias((atuais) => atuais.map(atualizar));
+        setSelectedMedia((atual) => (atual ? atualizar(atual) : atual));
       }
-
-      console.log("Galeria carregada:", galeria);
-
-      // Buscar mídias
-      const { data: midias, error: erroMidias } = await supabase
-        .from("medias")
-        .select("*")
-        .eq("library_id", LIBRARY_ID)
-        .is("deleted_at", null);
-
-      if (erroMidias) {
-        console.error("Erro ao buscar mídias:", erroMidias);
-        return;
+    )
+    // O Supabase não aceita filtro em DELETE; remover por id é inofensivo
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "medias" },
+      (payload) => {
+        const id = (payload.old as Linha).id;
+        if (id) removerMediaLocal(id);
       }
+    )
 
-      // Buscar associações entre mídias e tags
-      const { data: associacoes, error: erroAssociacoes } = await supabase
-        .from("media_tags")
-        .select("media_id, tag_id")
-        .eq("library_id", LIBRARY_ID);
-
-      if (erroAssociacoes) {
-        console.error("Erro ao buscar associações:", erroAssociacoes);
-        return;
+    // Tags
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "tags", filter: filtro },
+      (payload) => {
+        const linha = payload.new as Linha;
+        if (!linha.deleted_at) aplicarTag(converterTag(linha));
       }
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "tags", filter: filtro },
+      (payload) => {
+        const linha = payload.new as Linha;
 
-      // Buscar tags
-      const { data: tagsBanco, error: erroTags } = await supabase
-        .from("tags")
-        .select("*")
-        .eq("library_id", LIBRARY_ID)
-        .is("deleted_at", null);
-
-      if (erroTags) {
-        console.error("Erro ao buscar tags:", erroTags);
-        return;
+        if (linha.deleted_at) removerTagLocal(linha.id);
+        else aplicarTag(converterTag(linha));
       }
+    )
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "tags" },
+      (payload) => {
+        const id = (payload.old as Linha).id;
+        if (id) removerTagLocal(id);
+      }
+    )
 
-      // Converter tags do banco
-      const tagsConvertidas: tags[] = tagsBanco.map((tag) => ({
-        id: tag.id,
-        libraryId: tag.library_id,
-        name: tag.name,
-        color: tag.color,
-        description: tag.description,
-        parentTagId: tag.parent_tag_id,
-        createdAt: new Date(tag.created_at),
-        modifiedAt: new Date(tag.updated_at),
-        hasBorder: tag.has_border,
-        borderColor: tag.border_color,
-        textColor: tag.text_color,
-      }));
-      setTodasTags(tagsConvertidas);
+    // Associações mídia <-> tag
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "media_tags",
+        filter: filtro,
+      },
+      async (payload) => {
+        const { media_id, tag_id } = payload.new as Linha;
 
-      // Converter mídias do banco
-      const midiasConvertidas: Media[] = midias.map((media) => ({
-        id: media.id,
-        libraryId: media.library_id,
-        name: media.name,
-        src: "",
-        r2Key: media.r2_key,
-        mimeType: media.mime_type,
-        size: Number(media.size_bytes),
-        createdAt: media.file_created_at
-          ? new Date(media.file_created_at)
-          : null,
-        modifiedAt: media.file_modified_at
-          ? new Date(media.file_modified_at)
-          : null,
-        width: media.width,
-        height: media.height,
-        extension: media.name.split(".").pop()?.toLowerCase(),
-        thumbnailR2Key: media.thumbnail_r2_key,
-        thumbnailSrc: "",
-        tags: tagsConvertidas.filter((tag) =>
-          associacoes.some(
-            (associacao) =>
-              associacao.media_id === media.id &&
-              associacao.tag_id === tag.id
-          )
-        ),
-      }));
+        let tag = todasTagsRef.current.find((t) => t.id === tag_id);
 
-      setMedias(midiasConvertidas);
-      setSelectedMedia(null);
+        // A associação pode chegar antes da própria tag
+        if (!tag) {
+          const { data } = await supabase
+            .from("tags")
+            .select("*")
+            .eq("id", tag_id)
+            .maybeSingle();
 
-      console.log("Mídias carregadas:", midiasConvertidas);
+          if (!data) return;
 
-      setGaleriaCarregada(true);
-    }
+          tag = converterTag(data);
+          aplicarTag(tag);
+        }
 
-    carregarGaleria();
-  }, [user]);
+        const nova = tag;
+
+        const adicionar = (m: Media): Media =>
+          m.id === media_id && !m.tags.some((t) => t.id === nova.id)
+            ? { ...m, tags: [...m.tags, nova] }
+            : m;
+
+        setMedias((atuais) => atuais.map(adicionar));
+        setSelectedMedia((atual) => (atual ? adicionar(atual) : atual));
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "media_tags" },
+      (payload) => {
+        const { media_id, tag_id } = payload.old as Linha;
+        if (!media_id || !tag_id) return;
+
+        const remover = (m: Media): Media =>
+          m.id === media_id
+            ? { ...m, tags: m.tags.filter((t) => t.id !== tag_id) }
+            : m;
+
+        setMedias((atuais) => atuais.map(remover));
+        setSelectedMedia((atual) => (atual ? remover(atual) : atual));
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(canal);
+  };
+}, [user, galeriaCarregada]);
 
   async function selecionarMedia(media: Media | null) {
     if (!media) {
@@ -481,12 +783,20 @@ function App() {
       }
 
 
-      // Importação local (mandar pra nuvem depois)
+      // Importação
       function adicionarMedias(novasMedias: Media[]) {
-        setMedias((mediasAntigas) => [
-          ...mediasAntigas,
-          ...novasMedias,
-        ]);
+        setMedias((mediasAntigas) => {
+          const novasPorId = new Map(novasMedias.map((m) => [m.id, m]));
+
+          const atualizadas = mediasAntigas.map((m) => novasPorId.get(m.id) ?? m);
+          const existentes = new Set(mediasAntigas.map((m) => m.id));
+
+          const realmenteNovas = [...novasMedias]
+            .reverse()
+            .filter((m) => !existentes.has(m.id));
+
+          return [...realmenteNovas, ...atualizadas];
+        });
       }
 
         //exclui tag
@@ -639,19 +949,66 @@ function App() {
         }
 
   // Filtrar mídias por tag
-    const mediasFiltradas = medias.filter((media) =>
-      buscaTagIds.every((tagId) => {
-        const tagsDaCategoria = todasTags
-          .filter((tag) => tag.parentTagId === tagId)
-          .map((tag) => tag.id);
+    const mediasFiltradas = useMemo(() => {
+        // Categoria -> tags filhas, calculado uma vez
+        const filhas = new Map<string, Set<string>>();
 
-        return (
-          media.tags.some((tag) => tag.id === tagId) ||
-          media.tags.some((tag) => tagsDaCategoria.includes(tag.id))
-        );
-      })
-    );
+        for (const tag of todasTags) {
+          if (!tag.parentTagId) continue;
 
+          const conjunto = filhas.get(tag.parentTagId);
+          if (conjunto) conjunto.add(tag.id);
+          else filhas.set(tag.parentTagId, new Set([tag.id]));
+        }
+
+        const porTag = medias.filter((media) => {
+          const corresponde = (tagId: string) =>
+            media.tags.some(
+              (tag) => tag.id === tagId || filhas.get(tagId)?.has(tag.id)
+            );
+
+          if (filtros.tagsExcluidas.some(corresponde)) return false;
+
+          if (buscaTagIds.length === 0) return true;
+
+          return filtros.modoTags === "todas"
+            ? buscaTagIds.every(corresponde)
+            : buscaTagIds.some(corresponde);
+        });
+
+        return filtrarMedias(porTag, filtros);
+      }, [medias, todasTags, buscaTagIds, filtros]);
+
+      const extensoesDisponiveis = useMemo(
+        () =>
+          Array.from(
+            new Set(
+              medias
+                .map((media) => media.extension)
+                .filter((ext): ext is string => Boolean(ext))
+            )
+          ).sort(),
+        [medias]
+      );
+   
+   
+   
+   
+   
+    if (erroCarregamento) {
+      return (
+        <main className="flex h-screen flex-col items-center justify-center gap-4 bg-fundo text-white">
+          <p>Não foi possível carregar a galeria.</p>
+          <p className="text-sm text-gray-400">{erroCarregamento}</p>
+          <button
+            className="rounded-md bg-botao px-4 py-2 hover:brightness-110"
+            onClick={() => setTentativaGaleria((n) => n + 1)}
+          >
+            Tentar novamente
+          </button>
+        </main>
+      );
+    }
   // Estados de carregamento
   if (verificandoSessao || (user && !galeriaCarregada)) {
     return <p className="text-white">Carregando...</p>;
@@ -674,6 +1031,11 @@ function App() {
         updateAvailable={updateAvailable}
         updating={updating}
         onUpdate={atualizarApp}
+        filtrosAbertos={filtrosAbertos}
+        totalFiltrosAtivos={contarFiltrosAtivos(filtros)}
+        onToggleFiltros={() => setFiltrosAbertos((aberto) => !aberto)}
+        gerenciadorAberto={gerenciadorAberto}
+        onToggleGerenciador={() => setGerenciadorAberto((a) => !a)}
       />
 
       <Mediagrid
@@ -687,8 +1049,30 @@ function App() {
         onDeleteTag={excluirTag}
         onCustomizeTag={personalizarTag}
         onCreateCategory={criarTagCategoria}
-        
+        onRenameMedia={renomearMedia}
       />
+
+      <FilterPanel
+        aberto={filtrosAbertos}
+        filtros={filtros}
+        onChange={setFiltros}
+        extensoesDisponiveis={extensoesDisponiveis}
+        totalMidias={medias.length}
+        totalFiltradas={mediasFiltradas.length}
+        onClose={() => setFiltrosAbertos(false)}
+        todasTags={todasTags}
+        />
+
+      <TagManager
+        aberto={gerenciadorAberto}
+        allTags={todasTags}
+        medias={medias}
+        onClose={() => setGerenciadorAberto(false)}
+        onCustomizeTag={personalizarTag}
+        onDeleteTag={excluirTag}
+        onCreateCategory={criarTagCategoria}
+      />
+
     </main>
   );
 }

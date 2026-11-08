@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import Tagbutton from "./Tagbutton";
 import type { Media } from "./types/media";
 import type { tags } from "./types/tag";
+import { obterArquivoCacheado } from "../lib/cache";
 
 interface MediaInfoProps {
   media: Media | null;
@@ -18,7 +19,8 @@ interface MediaInfoProps {
     temBorda: boolean,
     corBorda: string | null,
     parentTagId: string | null
-  ) => void;
+    ) => void;
+  onRenameMedia: (mediaId: string, novoNome: string) => void;
   onCreateCategory: (nome: string) => Promise<tags | null>;
 }
 
@@ -44,6 +46,7 @@ function MediaInfo({
   onDeleteTag,
   onCustomizeTag,
   onCreateCategory,
+  onRenameMedia
 }: MediaInfoProps) {
   const [menu, setMenu] = useState<{
     tag: tags;
@@ -61,12 +64,39 @@ function MediaInfo({
   const [temBorda, setTemBorda] = useState(false);
   const [corBorda, setCorBorda] = useState("#ffffff");
   const [parentTagId, setParentTagId] = useState<string | null>(null);
+  const [editandoNome, setEditandoNome] = useState(false);
+  const [nomeEditado, setNomeEditado] = useState("");
+  const cancelouNome = useRef(false);
+
+  // Categoria digitada que ainda não existe: só é criada ao salvar
+  const [categoriaNova, setCategoriaNova] = useState<string | null>(null);
+
+  // Miniatura mostrada enquanto o original ainda está sendo carregado
+  const [previa, setPrevia] = useState("");
+
+
+
+  useEffect(() => {
+    setPrevia("");
+
+    const chave = media?.thumbnailR2Key;
+
+    if (!chave) return;
+
+    let cancelado = false;
+
+    obterArquivoCacheado(chave)
+      .then((src) => {
+        if (!cancelado) setPrevia(src);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelado = true;
+    };
+  }, [media?.id, media?.thumbnailR2Key]);
 
     useEffect(() => {
-      function fecharMenu() {
-        setMenu(null);
-      }
-
       function lidarComTecla(e: KeyboardEvent) {
         if (e.key === "Escape") {
           setMenu(null);
@@ -75,7 +105,9 @@ function MediaInfo({
         }
       }
 
-      function fecharSugestoes(e: MouseEvent) {
+      function aoClicar(e: MouseEvent) {
+        setMenu(null);
+
         if (
           categoriaRef.current &&
           !categoriaRef.current.contains(e.target as Node)
@@ -84,13 +116,11 @@ function MediaInfo({
         }
       }
 
-      window.addEventListener("click", fecharMenu);
-      window.addEventListener("click", fecharSugestoes);
+      window.addEventListener("click", aoClicar);
       window.addEventListener("keydown", lidarComTecla);
 
       return () => {
-        window.removeEventListener("click", fecharMenu);
-        window.removeEventListener("click", fecharSugestoes);
+        window.removeEventListener("click", aoClicar);
         window.removeEventListener("keydown", lidarComTecla);
       };
     }, []);
@@ -108,28 +138,42 @@ function MediaInfo({
 
     setParentTagId(tag.parentTagId);
     setBuscaCategoria(categoriaAtual?.name ?? "");
+    setCategoriaNova(null);
     setMostrarSugestoes(false);
 
     setTagPersonalizando(tag);
     setMenu(null);
   }
 
-  function salvarPersonalizacao() {
+  async function salvarPersonalizacao() {
     if (!tagPersonalizando) return;
 
-    if (!nome.trim()) {
+    const nomeLimpo = nome.trim();
+
+    if (!nomeLimpo) {
       alert("O nome da tag não pode ficar vazio.");
       return;
     }
 
+    let categoriaId = parentTagId;
+
+    // A categoria nova só é criada agora, ao salvar
+    if (categoriaNova) {
+      const novaCategoria = await onCreateCategory(categoriaNova);
+
+      if (!novaCategoria) return;
+
+      categoriaId = novaCategoria.id;
+    }
+
     onCustomizeTag(
       tagPersonalizando.id,
-      nome,
+      nomeLimpo,
       cor,
       corTexto,
       temBorda,
       corBorda,
-      parentTagId
+      categoriaId
     );
 
     setTagPersonalizando(null);
@@ -137,7 +181,40 @@ function MediaInfo({
 
   // Categorias disponíveis: tags que não possuem uma categoria pai.
   // Uma tag nunca pode ser sua própria categoria.
+      useEffect(() => {
+        setEditandoNome(false);
+      }, [media?.id]);
+      
+      function iniciarRenomeacao() {
+        if (!media) return;
 
+        const ponto = media.name.lastIndexOf(".");
+        const base = ponto > 0 ? media.name.slice(0, ponto) : media.name;
+
+        setNomeEditado(base);
+        setEditandoNome(true);
+      }
+
+      function confirmarRenomeacao() {
+        if (cancelouNome.current) {
+          cancelouNome.current = false;
+          return;
+        }
+
+        setEditandoNome(false);
+
+        if (!media) return;
+
+        const ponto = media.name.lastIndexOf(".");
+        const extensao = ponto > 0 ? media.name.slice(ponto) : "";
+        const base = nomeEditado.trim();
+
+        if (!base) return;
+
+        const novoNome = base + extensao;
+
+        if (novoNome !== media.name) onRenameMedia(media.id, novoNome);
+      }
           if (!media) {
             return (
               <aside className="w-1/4 shrink-0 bg-base text-white">
@@ -151,6 +228,11 @@ function MediaInfo({
             );
           }
           
+          // Uma tag que já é categoria de outras não pode virar filha
+          const temFilhas = tagPersonalizando
+            ? allTags.some((t) => t.parentTagId === tagPersonalizando.id)
+            : false;
+
           const categoriasFiltradas = allTags.filter(
             (tag) =>
               tag.parentTagId === null &&
@@ -160,16 +242,63 @@ function MediaInfo({
           
           return (
             <aside className="relative w-1/4 min-h-0 shrink-0 bg-base overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden text-white">
-              <img
-                src={media.src}
-                alt={media.name}
-                className="w-full object-cover"
-              />
+              {media.mimeType?.startsWith("video/") ? (
+                <video
+                  key={media.id}
+                  src={media.src || undefined}
+                  poster={previa || undefined}
+                  controls
+                  preload="metadata"
+                  className="w-full"
+                />
+              ) : media.src || previa ? (
+                <img
+                  src={media.src || previa}
+                  alt={media.name}
+                  className="w-full object-cover"
+                />
+              ) : (
+                <div
+                  className="w-full bg-card"
+                  style={{
+                    aspectRatio:
+                      media.width && media.height
+                        ? `${media.width} / ${media.height}`
+                        : "1 / 1",
+                  }}
+                />
+              )}
 
               <div className="mt-1 p-2">
-                <h1 className="break-words text-[20px] font-alexandria font-[700]">
-                  {media.name}
-                </h1>
+                {editandoNome ? (
+                  <input
+                    autoFocus
+                    autoComplete="off"
+                    value={nomeEditado}
+                    onChange={(e) => setNomeEditado(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    onBlur={confirmarRenomeacao}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+
+                      if (e.key === "Escape") {
+                        cancelouNome.current = true;
+                        setEditandoNome(false);
+                      }
+                    }}
+                    className="w-full rounded-md bg-fundo p-1 text-[20px] font-Alexandria font-[700] outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                ) : (
+                  <h1
+                    onDoubleClick={iniciarRenomeacao}
+                    title="Clique duas vezes para renomear"
+                    className="break-words text-[20px] font-Alexandria font-[700] cursor-text"
+                  >
+                    {media.name}
+                  </h1>
+                )}
 
          {media.tags.length > 0 && (
   <div className="flex flex-col m-2 gap-3">
@@ -238,23 +367,25 @@ function MediaInfo({
   </div>
 )}
 
-        <p className="mt-2 text-sm text-gray-400 font-alexandria font-[500]">
+        <p className="mt-2 text-sm text-gray-400 font-Alexandria font-[500]">
           Tamanho: {formatarTamanho(media.size)}
         </p>
 
-        <p className="mt-1 text-sm text-gray-400 font-alexandria font-[500]">
-          {media.width} x {media.height} px
-        </p>
+        {media.width && media.height ? (
+          <p className="mt-1 text-sm text-gray-400 font-Alexandria font-[500]">
+            {media.width} x {media.height} px
+          </p>
+        ) : null}
 
-        <p className="mt-1 text-sm text-gray-400 font-alexandria font-[500]">
+        <p className="mt-1 text-sm text-gray-400 font-Alexandria font-[500]">
           Extensão: {media.name.split(".").pop()?.toUpperCase() ?? "Sem extensão"}
         </p>
 
-        <p className="mt-1 text-sm text-gray-400 font-alexandria font-[500]">
+        <p className="mt-1 text-sm text-gray-400 font-Alexandria font-[500]">
           Criado em: {formatarData(media.createdAt)}
         </p>
 
-        <p className="mt-1 pb-6 text-sm text-gray-400 font-alexandria font-[500]">
+        <p className="mt-1 pb-6 text-sm text-gray-400 font-Alexandria font-[500]">
           Modificado em: {formatarData(media.modifiedAt)}
         </p>
       </div>
@@ -317,6 +448,7 @@ function MediaInfo({
 
             <input
               value={nome}
+              autoComplete="off"
               onChange={(e) => setNome(e.target.value)}
               className="mb-5 w-full rounded-md bg-fundo p-2 outline-none focus:ring-2 focus:ring-purple-400"
               placeholder="Nome da tag"
@@ -331,48 +463,60 @@ function MediaInfo({
             <div ref={categoriaRef} className="relative mb-5">
               <input
                 type="text"
+                autoComplete="off"
                 value={buscaCategoria}
+                disabled={temFilhas}
                 onChange={(e) => {
                   setBuscaCategoria(e.target.value);
                   setParentTagId(null);
+                  setCategoriaNova(null);
                   setMostrarSugestoes(true);
                 }}
-                onKeyDown={async (e) => {
+                onKeyDown={(e) => {
                   if (e.key !== "Enter") return;
                   e.preventDefault();
                   e.stopPropagation();
-                  
-                  const nome = buscaCategoria.trim();
-                  if (!nome) return;
+
+                  const nomeCategoria = buscaCategoria.trim();
+                  if (!nomeCategoria) return;
 
                   // Procura uma tag existente com o mesmo nome
                   const existente = allTags.find(
                     (tag) =>
                       tag.parentTagId === null &&
                       tag.id !== tagPersonalizando?.id &&
-                      tag.name.toLowerCase() === nome.toLowerCase()
+                      tag.name.toLowerCase() === nomeCategoria.toLowerCase()
                   );
 
                   if (existente) {
                     setParentTagId(existente.id);
+                    setCategoriaNova(null);
                     setBuscaCategoria(existente.name);
                     setMostrarSugestoes(false);
                     return;
                   }
 
-                  // Cria uma nova tag caso não exista
-                  const novaTag = await onCreateCategory(nome);
-
-                  if (novaTag) {
-                    setParentTagId(novaTag.id);
-                    setBuscaCategoria(novaTag.name);
-                    setMostrarSugestoes(false);
-                  }
+                  // Não existe: será criada somente ao salvar
+                  setParentTagId(null);
+                  setCategoriaNova(nomeCategoria);
+                  setMostrarSugestoes(false);
                 }}
                 onFocus={() => setMostrarSugestoes(true)}
                 placeholder="Digite o nome da categoria..."
-                className="w-full rounded-md bg-fundo p-2 outline-none focus:ring-2 focus:ring-purple-400"
+                className="w-full rounded-md bg-fundo p-2 outline-none focus:ring-2 focus:ring-purple-400 disabled:opacity-50"
               />
+
+              {temFilhas && (
+                <p className="mt-1 text-sm text-gray-400">
+                  Esta tag já é categoria de outras tags, por isso não pode ter categoria pai.
+                </p>
+              )}
+
+              {categoriaNova && (
+                <p className="mt-1 text-sm text-gray-400">
+                  A categoria "{categoriaNova}" será criada ao salvar.
+                </p>
+              )}
 
               {buscaCategoria && (
                 <button
@@ -380,6 +524,7 @@ function MediaInfo({
                   onClick={() => {
                     setBuscaCategoria("");
                     setParentTagId(null);
+                    setCategoriaNova(null);
                     setMostrarSugestoes(false);
                   }}
                   className="absolute right-3 top-2 text-gray-400 hover:text-white"
@@ -397,6 +542,7 @@ function MediaInfo({
                         type="button"
                         onClick={() => {
                           setParentTagId(categoria.id);
+                          setCategoriaNova(null);
                           setBuscaCategoria(categoria.name);
                           setMostrarSugestoes(false);
                         }}

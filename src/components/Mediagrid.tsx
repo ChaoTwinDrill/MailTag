@@ -1,9 +1,11 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import type { Media } from "./types/media";
 import MediaCard from "./Mediacard";
 import MediaInfo from "./MediaInfo";
 import type { tags } from "./types/tag";
+
+const NUM_COLUNAS = 4;
 
 type MediagridProps = {
     medias: Media[];
@@ -24,6 +26,7 @@ type MediagridProps = {
     ) => void;
     allTags: tags[];
     onCreateCategory: (nome: string) => Promise<tags | null>;
+    onRenameMedia: (mediaId: string, novoNome: string) => void;
 };
 
 function Mediagrid({
@@ -36,13 +39,29 @@ function Mediagrid({
     onDeleteMedia,
     onDeleteTag,
     onCustomizeTag,
-    onCreateCategory
+    onCreateCategory,
+    onRenameMedia
 }: MediagridProps) {
     const [menu, setMenu] = useState<{
         media: Media;
         x: number;
         y: number;
     } | null>(null);
+
+
+    const colunas = useMemo(() => {
+    const resultado: Media[][] = Array.from(
+        { length: NUM_COLUNAS },
+        () => []
+    );
+
+    medias.forEach((media, indice) => {
+        resultado[indice % NUM_COLUNAS].push(media);
+    });
+
+    return resultado;
+}, [medias]);
+
 
     useEffect(() => {
         function fecharMenu() {
@@ -56,7 +75,7 @@ function Mediagrid({
             }
 
             if (e.key !== "Delete" || !selectedMedia) return;
-
+            if (document.querySelector("[data-painel-filtros]")) return;
             const elemento = e.target as HTMLElement;
 
             if (
@@ -87,18 +106,21 @@ function Mediagrid({
     return (
         <div className="flex min-h-0 flex-1 overflow-hidden">
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden p-5 bg-fundo">
-                <div className="columns-4 gap-4">
-                    {medias.map((media) => (
-                        <div key={media.id} className="mb-4 break-inside-avoid">
-                            <MediaCard
-                                media={media}
-                                onSelectMedia={(selecionada) => {
-                                    setMenu(null);
-                                    onSelectMedia(selecionada);
-                                }}
-                                onContextMenu={abrirMenu}
-                                selected={selectedMedia?.id === media.id}
-                            />
+               <div className="flex items-start gap-4">
+                    {colunas.map((coluna, indice) => (
+                        <div key={indice} className="flex min-w-0 flex-1 flex-col gap-4">
+                            {coluna.map((media) => (
+                                <MediaCard
+                                    key={media.id}
+                                    media={media}
+                                    onSelectMedia={(selecionada) => {
+                                        setMenu(null);
+                                        onSelectMedia(selecionada);
+                                    }}
+                                    onContextMenu={abrirMenu}
+                                    selected={selectedMedia?.id === media.id}
+                                />
+                            ))}
                         </div>
                     ))}
                 </div>
@@ -112,6 +134,7 @@ function Mediagrid({
               onDeleteTag={onDeleteTag}
               onCustomizeTag={onCustomizeTag}
               onCreateCategory={onCreateCategory}
+              onRenameMedia={onRenameMedia}
             />
 
             {menu && (
