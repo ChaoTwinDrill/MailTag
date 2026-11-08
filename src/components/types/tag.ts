@@ -7,4 +7,7 @@ export interface tags {
     parentTagId: string | null;
     createdAt: Date;
     modifiedAt: Date;
+    hasBorder: boolean;
+    borderColor: string | null;
+    textColor: string | null;
 }

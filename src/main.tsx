@@ -13,21 +13,31 @@ import { LIBRARY_ID } from "./lib/library";
 import type { Media } from "./components/types/media.ts";
 import type { tags } from "./components/types/tag.ts";
 
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+
 import "./global.css";
+
+  const WORKER_URL = "https://mailtag-api.oririkkj.workers.dev";
 
 function App() {
   const [medias, setMedias] = useState<Media[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
-  const [buscaTag, setBuscaTag] = useState("");
-
+  const [buscaTagIds, setBuscaTagIds] = useState<string[]>([]);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const [todasTags, setTodasTags] = useState<tags[]>([]);
   const [mostrarAuth, setMostrarAuth] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [verificandoSessao, setVerificandoSessao] = useState(true);
   const [galeriaCarregada, setGaleriaCarregada] = useState(false);
+  
 
   // Autenticação
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
+
       setUser(data.session?.user ?? null);
       setVerificandoSessao(false);
     });
@@ -45,6 +55,90 @@ function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+   useEffect(() => {
+        async function verificarAtualizacao() {
+          try {
+            const update = await check();
+
+            if (update) {
+              setAvailableUpdate(update);
+              setUpdateAvailable(true);
+              console.log("Atualização disponível:", update.version);
+            }
+          } catch (erro) {
+            console.error("Erro ao verificar atualização:", erro);
+          }
+        }
+
+        verificarAtualizacao();
+
+        const intervalo = setInterval(verificarAtualizacao, 60 * 60 * 1000);
+
+        return () => clearInterval(intervalo);
+      }, []);
+
+          // Excluir mídia
+    async function removerMedia(media: Media) {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+
+        if (error || !data.session) {
+          throw new Error("Usuário não autenticado.");
+        }
+
+        // Remover associações com tags
+        const { error: erroTags } = await supabase
+          .from("media_tags")
+          .delete()
+          .eq("library_id", LIBRARY_ID)
+          .eq("media_id", media.id);
+
+        if (erroTags) throw erroTags;
+
+        // Remover registro da mídia
+        const { error: erroMedia } = await supabase
+          .from("medias")
+          .delete()
+          .eq("library_id", LIBRARY_ID)
+          .eq("id", media.id);
+
+        if (erroMedia) throw erroMedia;
+
+        // Remover arquivos do R2
+        const resposta = await fetch(WORKER_URL, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${data.session.access_token}`,
+            "X-Library-Id": LIBRARY_ID,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            key: media.r2Key,
+            thumbnailKey: media.thumbnailR2Key,
+          }),
+        });
+
+        const resultado = await resposta.json();
+
+        if (!resposta.ok) {
+          throw new Error(resultado.error || "Erro ao excluir arquivos do R2.");
+        }
+
+        // Atualizar a galeria
+        setMedias((atuais) =>
+          atuais.filter((m) => m.id !== media.id)
+        );
+
+        setSelectedMedia((atual) =>
+          atual?.id === media.id ? null : atual
+        );
+
+      } catch (erro) {
+        console.error("Erro ao excluir mídia:", erro);
+        alert("Não foi possível concluir a exclusão. Verifique o console.");
+      }
+    }
 
   // Carregar galeria, mídias e tags
   useEffect(() => {
@@ -117,7 +211,11 @@ function App() {
         parentTagId: tag.parent_tag_id,
         createdAt: new Date(tag.created_at),
         modifiedAt: new Date(tag.updated_at),
+        hasBorder: tag.has_border,
+        borderColor: tag.border_color,
+        textColor: tag.text_color,
       }));
+      setTodasTags(tagsConvertidas);
 
       // Converter mídias do banco
       const midiasConvertidas: Media[] = midias.map((media) => ({
@@ -190,6 +288,53 @@ function App() {
       console.error("Erro ao carregar original:", erro);
     }
   }
+//Criar tag na categoria
+  async function criarTagCategoria(nomeTag: string): Promise<tags | null> {
+  const nome = nomeTag.trim();
+
+  if (!nome) return null;
+
+  // Verifica se já existe uma tag com esse nome
+  const existente = todasTags.find(
+    (tag) => tag.name.toLowerCase() === nome.toLowerCase()
+  );
+
+  if (existente) return existente;
+
+  const { data, error } = await supabase
+    .from("tags")
+    .insert({
+      library_id: LIBRARY_ID,
+      name: nome,
+      parent_tag_id: null,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Erro ao criar tag:", error);
+    alert("Não foi possível criar a tag.");
+    return null;
+  }
+
+  const novaTag: tags = {
+    id: data.id,
+    libraryId: data.library_id,
+    name: data.name,
+    color: data.color,
+    description: data.description,
+    parentTagId: data.parent_tag_id,
+    createdAt: new Date(data.created_at),
+    modifiedAt: new Date(data.updated_at),
+    hasBorder: data.has_border,
+    borderColor: data.border_color,
+    textColor: data.text_color,
+  };
+
+  setTodasTags((atuais) => [...atuais, novaTag]);
+
+  return novaTag;
+}
 
   // Adicionar tag
       async function adicionarTag(mediaId: string, nomeTag: string) {
@@ -263,7 +408,19 @@ function App() {
         parentTagId: tagExistente.parent_tag_id,
         createdAt: new Date(tagExistente.created_at),
         modifiedAt: new Date(tagExistente.updated_at),
+        hasBorder: tagExistente.has_border,
+        borderColor: tagExistente.border_color,
+        textColor: tagExistente.text_color,
+        
       };
+
+      setTodasTags((atuais) => {
+        if (atuais.some((tag) => tag.id === novaTag.id)) {
+          return atuais;
+        }
+
+        return [...atuais, novaTag];
+      });
 
       setMedias((mediasAntigas) =>
         mediasAntigas.map((media) =>
@@ -284,45 +441,216 @@ function App() {
     }
 
   // Remover tag
-  function removerTag(mediaId: string, tagId: string) {
-    setMedias((mediasAntigas) =>
-      mediasAntigas.map((media) =>
-        media.id === mediaId
-          ? {
-              ...media,
-              tags: media.tags.filter((tag) => tag.id !== tagId),
-            }
-          : media
-      )
-    );
+  
+      async function removerTag(mediaId: string, tagId: string) {
+        try {
+          const { data, error } = await supabase
+            .from("media_tags")
+            .delete()
+            .eq("library_id", LIBRARY_ID)
+            .eq("media_id", mediaId)
+            .eq("tag_id", tagId)
+            .select();
 
-    setSelectedMedia((mediaAtual) => {
-      if (!mediaAtual || mediaAtual.id !== mediaId) {
-        return mediaAtual;
+          console.log("Resultado ao remover associação:", { data, error });
+
+          if (error) throw error;
+
+
+          setMedias((atuais) =>
+            atuais.map((media) =>
+              media.id === mediaId
+                ? { ...media, tags: media.tags.filter((tag) => tag.id !== tagId) }
+                : media
+            )
+          );
+            
+          setSelectedMedia((atual) =>
+            atual?.id === mediaId
+              ? { ...atual, tags: atual.tags.filter((tag) => tag.id !== tagId) }
+              : atual
+          );
+        } catch (erro) {
+          console.error("Erro ao remover tag:", erro);
+
+
+          alert("Não foi possível remover a tag. Verifique o console.");
+
+          
+        }
       }
 
-      return {
-        ...mediaAtual,
-        tags: mediaAtual.tags.filter((tag) => tag.id !== tagId),
-      };
-    });
-  }
 
-  // Importação local (mandar pra nuvem depois)
-  function adicionarMedias(novasMedias: Media[]) {
-    setMedias((mediasAntigas) => [
-      ...mediasAntigas,
-      ...novasMedias,
-    ]);
-  }
+      // Importação local (mandar pra nuvem depois)
+      function adicionarMedias(novasMedias: Media[]) {
+        setMedias((mediasAntigas) => [
+          ...mediasAntigas,
+          ...novasMedias,
+        ]);
+      }
+
+        //exclui tag
+        async function excluirTag(tagId: string) {
+          try {
+            const { data: associacoes, error: erroAssociacoes } = await supabase
+              .from("media_tags")
+              .delete()
+              .eq("library_id", LIBRARY_ID)
+              .eq("tag_id", tagId)
+              .select();
+
+            console.log("Associações removidas:", { associacoes, erroAssociacoes });
+
+            if (erroAssociacoes) throw erroAssociacoes;
+
+            const { data, error } = await supabase
+              .from("tags")
+              .delete()
+              .eq("library_id", LIBRARY_ID)
+              .eq("id", tagId)
+              .select();
+            console.log("Tag excluída:", { data, error });
+
+            if (error) throw error;
+
+            if (!data || data.length === 0) {
+              throw new Error("A tag não foi encontrada ou a exclusão foi bloqueada.");
+            }
+
+            setTodasTags((atuais) => atuais.filter((tag) => tag.id !== tagId));
+
+            setMedias((atuais) =>
+              atuais.map((media) => ({
+                ...media,
+                tags: media.tags.filter((tag) => tag.id !== tagId),
+              }))
+            );
+
+            setSelectedMedia((atual) =>
+              atual
+                ? {
+                    ...atual,
+                    tags: atual.tags.filter((tag) => tag.id !== tagId),
+                  }
+                : atual
+            );
+          } catch (erro) {
+            console.error("Erro ao excluir tag:", erro);
+            alert("Não foi possível excluir a tag. Verifique o console.");
+          }
+        }
+
+
+        async function personalizarTag(
+          tagId: string,
+          nome: string,
+          cor: string | null,
+          corTexto: string | null,
+          temBorda: boolean,
+          corBorda: string | null,
+          parentTagId: string | null
+        ) {
+          try {
+            const nomeLimpo = nome.trim();
+
+            if (!nomeLimpo) {
+              alert("O nome da tag não pode ficar vazio.");
+              return;
+            }
+
+            const { data, error } = await supabase
+              .from("tags")
+              .update({
+                name: nomeLimpo,
+                color: cor,
+                has_border: temBorda,
+                border_color: temBorda ? corBorda : null,
+                updated_at: new Date().toISOString(),
+                text_color: corTexto,
+                parent_tag_id: parentTagId,
+              })
+              .eq("library_id", LIBRARY_ID)
+              .eq("id", tagId)
+              .select()
+              .single();
+
+            if (error) throw error;
+
+            const tagAtualizada: tags = {
+              id: data.id,
+              libraryId: data.library_id,
+              name: data.name,
+              color: data.color,
+              hasBorder: data.has_border,
+              borderColor: data.border_color,
+              description: data.description,
+              parentTagId: data.parent_tag_id,
+              createdAt: new Date(data.created_at),
+              modifiedAt: new Date(data.updated_at),
+              textColor: data.text_color,
+            };  
+
+              setTodasTags((atuais) =>
+                atuais.map((tag) =>
+                  tag.id === tagId ? tagAtualizada : tag
+                )
+              );
+
+            setMedias((atuais) =>
+              atuais.map((media) => ({
+                ...media,
+                tags: media.tags.map((tag) =>
+                  tag.id === tagId ? tagAtualizada : tag
+                ),
+              }))
+            );
+
+            setSelectedMedia((atual) =>
+              atual
+                ? {
+                    ...atual,
+                    tags: atual.tags.map((tag) =>
+                      tag.id === tagId ? tagAtualizada : tag
+                    ),
+                  }
+                : atual
+            );
+          } catch (erro) {
+            console.error("Erro ao personalizar tag:", erro);
+            alert("Não foi possível personalizar a tag.");
+          }
+        }
+
+      async function atualizarApp() {
+          if (!availableUpdate) return;
+
+          try {
+            setUpdating(true);
+
+            await availableUpdate.downloadAndInstall();
+
+            await relaunch();
+          } catch (erro) {
+            console.error("Erro ao atualizar aplicativo:", erro);
+            alert("Não foi possível atualizar o MailTag.");
+          } finally {
+            setUpdating(false);
+          }
+        }
 
   // Filtrar mídias por tag
-  const mediasFiltradas = medias.filter((media) =>
-    buscaTag.trim() === "" ||
-    (media.tags ?? []).some((tag) =>
-      tag.name.toLowerCase().includes(buscaTag.toLowerCase())
-    )
-  );
+    const mediasFiltradas = medias.filter((media) =>
+      buscaTagIds.every((tagId) => {
+        const tagsDaCategoria = todasTags
+          .filter((tag) => tag.parentTagId === tagId)
+          .map((tag) => tag.id);
+
+        return (
+          media.tags.some((tag) => tag.id === tagId) ||
+          media.tags.some((tag) => tagsDaCategoria.includes(tag.id))
+        );
+      })
+    );
 
   // Estados de carregamento
   if (verificandoSessao || (user && !galeriaCarregada)) {
@@ -338,18 +666,28 @@ function App() {
     <main className="flex h-screen flex-col overflow-hidden">
       <Header
         onImport={adicionarMedias}
-        buscaTag={buscaTag}
-        onBuscaTag={setBuscaTag}
+        buscaTagIds={buscaTagIds}
+        onBuscaTagIds={setBuscaTagIds}
+        allTags={todasTags}
         userEmail={user?.email ?? null}
         onLogin={() => setMostrarAuth(true)}
+        updateAvailable={updateAvailable}
+        updating={updating}
+        onUpdate={atualizarApp}
       />
 
       <Mediagrid
         medias={mediasFiltradas}
+        allTags={todasTags}
         selectedMedia={selectedMedia}
         onSelectMedia={selecionarMedia}
         onAddTag={adicionarTag}
         onRemoveTag={removerTag}
+        onDeleteMedia={removerMedia}
+        onDeleteTag={excluirTag}
+        onCustomizeTag={personalizarTag}
+        onCreateCategory={criarTagCategoria}
+        
       />
     </main>
   );

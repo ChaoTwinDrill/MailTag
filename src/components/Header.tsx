@@ -1,27 +1,75 @@
-
 import { useState } from "react";
 import type { Media } from "./types/media";
+import type { tags } from "./types/tag";
 
 import ImportButton from "./Importbutton";
-import { FaSearch, FaFilter, FaUserCircle } from "react-icons/fa";
+import { FaSearch, FaFilter, FaUserCircle, FaTimes } from "react-icons/fa";
 import { supabase } from "../lib/supabase";
 
 type HeaderProps = {
   onImport: (medias: Media[]) => void;
-  buscaTag: string;
-  onBuscaTag: (busca: string) => void;
+  buscaTagIds: string[];
+  onBuscaTagIds: (ids: string[]) => void;
+  allTags: tags[];
   userEmail: string | null;
   onLogin: () => void;
+  updateAvailable: boolean;
+  updating: boolean;
+  onUpdate: () => void;
 };
 
 function Header({
   onImport,
-  buscaTag,
-  onBuscaTag,
+  buscaTagIds,
+  onBuscaTagIds,
+  allTags,
   userEmail,
   onLogin,
+  updating,
+  onUpdate,
+  updateAvailable,
 }: HeaderProps) {
   const [menuAberto, setMenuAberto] = useState(false);
+  const [textoBusca, setTextoBusca] = useState("");
+
+    const sugestoes = allTags.filter((tag) => {
+    const busca = textoBusca.trim().toLowerCase();
+
+    if (!busca || buscaTagIds.includes(tag.id)) return false;
+
+    const correspondeAoNome = tag.name.toLowerCase().includes(busca);
+
+    const categoriaCorrespondente = allTags.some(
+      (categoria) =>
+        categoria.id === tag.parentTagId &&
+        categoria.name.toLowerCase().includes(busca)
+    );
+
+  return correspondeAoNome || categoriaCorrespondente;
+});
+
+  function selecionarTag(tag: tags) {
+    if (buscaTagIds.includes(tag.id)) return;
+
+    onBuscaTagIds([...buscaTagIds, tag.id]);
+    setTextoBusca("");
+  }
+
+  function removerTag(tagId: string) {
+    onBuscaTagIds(buscaTagIds.filter((id) => id !== tagId));
+  }
+
+  function confirmarBusca() {
+    const nome = textoBusca.trim();
+
+    if (!nome) return;
+
+    const tag = allTags.find(
+      (t) => t.name.toLowerCase() === nome.toLowerCase()
+    );
+
+    if (tag) selecionarTag(tag);
+  }
 
   async function sair() {
     const { error } = await supabase.auth.signOut();
@@ -35,28 +83,108 @@ function Header({
 
   return (
     <header className="h-20 bg-base border-b-20 border-border flex items-center px-4 gap-5">
-
       <form
         role="search"
-        className="flex items-center gap-2 bg-botao rounded-lg px-4 py-2 w-3/4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          confirmarBusca();
+        }}
+        className="relative flex items-center gap-2 bg-botao rounded-lg px-4 py-2 w-3/4 min-w-0"
       >
-        <label htmlFor="busca">
-          <FaSearch className="text-white" />
-        </label>
+        <FaSearch className="text-white shrink-0" />
 
-        <input
-          type="text"
-          id="busca"
-          placeholder="Digite o que procura..."
-          className="focus:outline-none w-full text-white"
-          value={buscaTag}
-          onChange={(e) => onBuscaTag(e.target.value)}
-        />
+        <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+          {buscaTagIds.map((id) => {
+            const tag = allTags.find((t) => t.id === id);
+
+            if (!tag) return null;
+
+            return (
+              <span
+                key={tag.id}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold shrink-0"
+                style={{
+                  backgroundColor: tag.color ?? "#555555",
+                  color: tag.textColor ?? "#ffffff",
+                  border: tag.hasBorder
+                    ? `2px solid ${tag.borderColor ?? "#ffffff"}`
+                    : "none",
+                }}
+              >
+                {tag.name}
+
+                <button
+                  type="button"
+                  onClick={() => removerTag(tag.id)}
+                  className="hover:opacity-60"
+                  title="Remover tag da pesquisa"
+                >
+                  <FaTimes />
+                </button>
+              </span>
+            );
+          })}
+
+          <input
+            type="text"
+            id="busca"
+            placeholder={
+              buscaTagIds.length > 0
+                ? "Adicionar outra tag..."
+                : "Digite o que procura..."
+            }
+            className="focus:outline-none bg-transparent text-white flex-1 min-w-24"
+            value={textoBusca}
+            onChange={(e) => setTextoBusca(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Backspace" && textoBusca === "" && buscaTagIds.length > 0) {
+                removerTag(buscaTagIds[buscaTagIds.length - 1]);
+              }
+
+              if (e.key === " " && textoBusca.trim() !== "") {
+                e.preventDefault();
+                confirmarBusca();
+              }
+
+              if (e.key === "Escape") {
+                setTextoBusca("");
+              }
+            }}
+          />
+        </div>
+
+        {sugestoes.length > 0 && (
+          <div className="absolute top-[calc(100%-8px)] left-0 right-0 z-50 bg-gradient-to-b from-botao via-botao/40 to-botao/0 p-3 pt-5 rounded-b-lg">
+            <div className="flex flex-wrap gap-2">
+              {sugestoes.map((tag) => (
+                <button
+                  key={tag.id}
+                  type="button"
+                  title={tag.name}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => selecionarTag(tag)}
+                  className="min-w-10 h-10 px-2 shrink-0 rounded flex items-center justify-center border hover:brightness-125 transition"
+                  style={{
+                    backgroundColor: tag.color ?? "#555555",
+                    color: tag.textColor ?? "#ffffff",
+                    border: tag.hasBorder
+                      ? `2px solid ${tag.borderColor ?? "#ffffff"}`
+                      : "none",
+                  }}
+                >
+                  <span className="text-xs font-bold whitespace-nowrap">
+                    {tag.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </form>
 
       <ImportButton onImport={onImport} />
 
-      <button>
+      <button type="button">
         <FaFilter className="text-white w-15 h-7" />
       </button>
 
@@ -71,29 +199,24 @@ function Header({
 
         {menuAberto && (
           <div className="absolute right-0 z-50 top-12 w-56 rounded-lg bg-fundo p-1 text-white">
-
             {userEmail ? (
               <>
-
                 <button
                   className="w-full rounded-md p-2 text-left hover:bg-botao"
-                  onClick={() => {
-                    setMenuAberto(false);
-                    // aqui tem q fazer abrir configurações da conta
-                  }}
+                  onClick={() => setMenuAberto(false)}
                 >
                   Minha conta
                 </button>
 
-                <button
-                  className="w-full rounded-md p-2 text-left hover:bg-botao"
-                  onClick={() => {
-                    setMenuAberto(false);
-                    // nesse abrir as configurações de sincronização (se tiver ne)
-                  }}
-                >
-                  Sincronização
-                </button>
+                {updateAvailable && (
+                  <button
+                    className="w-full rounded-md p-2 text-left hover:bg-botao"
+                    onClick={onUpdate}
+                    disabled={updating}
+                  >
+                    {updating ? "Atualizando..." : "Atualização disponível"}
+                  </button>
+                )}
 
                 <button
                   className="w-full rounded-md p-2 text-left text-red-400 hover:bg-botao"
@@ -113,11 +236,9 @@ function Header({
                 Entrar
               </button>
             )}
-
           </div>
         )}
       </div>
-
     </header>
   );
 }

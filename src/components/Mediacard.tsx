@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from "react";
 import type { Media } from "./types/media";
 import { obterArquivoCacheado } from "../lib/cache";
@@ -5,21 +6,23 @@ import { obterArquivoCacheado } from "../lib/cache";
 interface MediaCardProps {
     media: Media;
     onSelectMedia: (media: Media | null) => void;
+    onContextMenu: (media: Media, x: number, y: number) => void;
     selected: boolean;
 }
 
-function MediaCard({ media, onSelectMedia, selected }: MediaCardProps) {
+function MediaCard({
+    media,
+    onSelectMedia,
+    onContextMenu,
+    selected
+}: MediaCardProps) {
     const cardRef = useRef<HTMLDivElement>(null);
     const [imagem, setImagem] = useState(media.thumbnailSrc);
 
     useEffect(() => {
         setImagem(media.thumbnailSrc);
 
-        // Miniatura já disponível, por exemplo após uma importação
-        if (media.thumbnailSrc) return;
-
-        // Mídias antigas sem miniatura ainda não podem usar esse fluxo
-        if (!media.thumbnailR2Key) return;
+        if (media.thumbnailSrc || !media.thumbnailR2Key) return;
 
         let cancelado = false;
 
@@ -40,9 +43,7 @@ function MediaCard({ media, onSelectMedia, selected }: MediaCardProps) {
             { rootMargin: "300px" }
         );
 
-        if (cardRef.current) {
-            observer.observe(cardRef.current);
-        }
+        if (cardRef.current) observer.observe(cardRef.current);
 
         return () => {
             cancelado = true;
@@ -54,9 +55,15 @@ function MediaCard({ media, onSelectMedia, selected }: MediaCardProps) {
         <div
             ref={cardRef}
             className={`overflow-hidden rounded-lg bg-card cursor-pointer ${
-                selected ? "outline outline-4 outline-purple-200 outline-offset brightness-69" : ""
+                selected
+                    ? "outline outline-4 outline-purple-200 outline-offset brightness-69"
+                    : ""
             }`}
             onClick={() => onSelectMedia(media)}
+            onContextMenu={(e) => {
+                e.preventDefault();
+                onContextMenu(media, e.clientX, e.clientY);
+            }}
         >
             {imagem ? (
                 <img
