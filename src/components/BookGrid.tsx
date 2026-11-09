@@ -20,7 +20,6 @@ type BookGridProps = {
     parentTagId: string | null,
     prioridade: number | null
   ) => void;
-  onDeleteTag: (tagId: string) => void;
   onCreateCategory: (nome: string, categoriaId?: string | null) => Promise<tags | null>;
   onChangeAutoTags: (tagId: string, ids: string[]) => void | Promise<void>;
   
@@ -109,7 +108,6 @@ function BookGrid({
   onAddTag,
   onRemoveTag,
   onCustomizeTag,
-  onDeleteTag,
   onCreateCategory,
   onChangeAutoTags,
 }: BookGridProps) {

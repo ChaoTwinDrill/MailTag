@@ -214,29 +214,28 @@ function Header({
         </button>
       )}
       {modo === "imagens" && (
-        <>
             <ImportButton onImport={onImport} />
-            <button
-              type="button"
-              onClick={onToggleFiltros}
-              title="Filtros"
-              aria-pressed={filtrosAbertos}
-              className="relative hover:opacity-70"
-            >
-              <FaFilter
-                className={`w-15 h-7 ${
-                  filtrosAbertos ? "text-botao-claro" : "text-white"
-                }`}
-              />
+          )}
 
-              {totalFiltrosAtivos > 0 && (
-                <span className="absolute -right-1 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-botao-claro px-1 text-xs font-bold text-fundo">
-                  {totalFiltrosAtivos}
-                </span>
-              )}
-            </button>
-                </>
-      )}
+          <button
+            type="button"
+            onClick={onToggleFiltros}
+            title="Filtros"
+            aria-pressed={filtrosAbertos}
+            className="relative hover:opacity-70"
+          >
+            <FaFilter
+              className={`w-15 h-7 ${
+                filtrosAbertos ? "text-botao-claro" : "text-white"
+              }`}
+            />
+
+            {totalFiltrosAtivos > 0 && (
+              <span className="absolute -right-1 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-botao-claro px-1 text-xs font-bold text-fundo">
+                {totalFiltrosAtivos}
+              </span>
+            )}
+          </button>
       
         <button
               type="button"

@@ -53,15 +53,6 @@ function TagManager({
   const [busca, setBusca] = useState("");
   const [novaTag, setNovaTag] = useState("");
   const [editando, setEditando] = useState<tags | null>(null);
-  const [prioridade, setPrioridade] = useState("");
-  const [nome, setNome] = useState(""); 
-  const [cor, setCor] = useState("#6366f1");
-  const [corTexto, setCorTexto] = useState("#ffffff");
-  const [temBorda, setTemBorda] = useState(false);
-  const [corBorda, setCorBorda] = useState("#ffffff");
-  const [parentTagId, setParentTagId] = useState<string | null>(null);
-  const [autoIds, setAutoIds] = useState<string[]>([]);
-  const [buscaAuto, setBuscaAuto] = useState("");
 
   useEffect(() => {
     if (!aberto) {
@@ -107,58 +98,8 @@ function TagManager({
     );
 
   function abrirEdicao(tag: tags) {
-    setNome(tag.name);
-    setCor(tag.color ?? "#6366f1");
-    setCorTexto(tag.textColor ?? "#ffffff");
-    setTemBorda(tag.hasBorder);
-    setCorBorda(tag.borderColor ?? "#ffffff");
-    setParentTagId(tag.parentTagId);
-    setEditando(tag);
-    setPrioridade(tag.priority?.toString() ?? "");
-    setAutoIds(tag.autoTagIds);
-    setBuscaAuto("");
-  }
-
-  async function salvar() {
-    if (!editando) return;
-    const numero = prioridade.trim() === "" ? null : Number(prioridade);
-    const nomeLimpo = nome.trim();
-
-    if (!nomeLimpo) {
-      alert("O nome da tag não pode ficar vazio.");
-      return;
-    }
-
-    const duplicada = allTags.some(
-      (t) =>
-        t.id !== editando.id &&
-        t.name.toLowerCase() === nomeLimpo.toLowerCase()
-    );
-
-    if (duplicada) {
-      alert("Já existe uma tag com esse nome.");
-      return;
-    }
-
-      await onCustomizeTag(
-        editando.id,
-        nomeLimpo,
-        cor,
-        corTexto,
-        temBorda,
-        corBorda,
-        parentTagId,
-        Number.isFinite(numero) ? numero : null
-      );
-
-      const mudou =
-        autoIds.length !== editando.autoTagIds.length ||
-        autoIds.some((id) => !editando.autoTagIds.includes(id));
-
-      if (mudou) await onChangeAutoTags(editando.id, autoIds);
-
-      setEditando(null);
-    }
+  setEditando(tag);
+}
 
   function excluir(tag: tags) {
     const usos = contagem.get(tag.id) ?? 0;
@@ -186,14 +127,6 @@ function TagManager({
     await onCreateCategory(texto, categoriaPadraoId);
     setNovaTag("");
   }
-
-  const temFilhas = editando
-    ? allTags.some((t) => t.parentTagId === editando.id)
-    : false;
-
-  const categorias = allTags
-    .filter((t) => t.parentTagId === null && t.id !== editando?.id)
-    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
   return (
     <div

@@ -4,7 +4,14 @@ import type { User } from "@supabase/supabase-js";
 import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import CreateBook from "./components/CreateBook.tsx";
+import BookFilterPanel from "./components/BookFilterPanel";
 
+import {
+  FILTROS_LIVROS_PADRAO,
+  contarFiltrosLivrosAtivos,
+  filtrarLivros,
+  type FiltrosLivros,
+} from "./lib/bookFilters";
 
 
 
@@ -214,7 +221,8 @@ function App() {
   const [livros, setLivros] = useState<Book[]>([]);
   const [versaoLivros, setVersaoLivros] = useState(0);
   const [criandoLivro, setCriandoLivro] = useState(false);
-
+  const [filtrosLivros, setFiltrosLivros] =
+  useState<FiltrosLivros>(FILTROS_LIVROS_PADRAO);
     
   const [categoriaPadraoId, setCategoriaPadraoId] = useState<string | null>(() => {
   try {
@@ -1417,20 +1425,31 @@ useEffect(() => {
       }, [medias, filhasPorCategoria, buscaTagIds, filtros]);
 
       const livrosFiltrados = useMemo(() => {
-        if (buscaTagIds.length === 0) return livros;
+        const livrosPorTags =
+          buscaTagIds.length === 0
+            ? livros
+            : livros.filter((livro) => {
+                const corresponde = (tagId: string) =>
+                  livro.tagIds.some(
+                    (id) =>
+                      id === tagId ||
+                      filhasPorCategoria.get(tagId)?.has(id)
+                  );
 
-        const corresponde = (livro: Book, tagId: string) =>
-          livro.tagIds.some(
-            (id) => id === tagId || filhasPorCategoria.get(tagId)?.has(id)
-          );
+                return filtros.modoTags === "todas"
+                  ? buscaTagIds.every(corresponde)
+                  : buscaTagIds.some(corresponde);
+              });
 
-        return livros.filter((livro) =>
-          filtros.modoTags === "todas"
-            ? buscaTagIds.every((t) => corresponde(livro, t))
-            : buscaTagIds.some((t) => corresponde(livro, t))
-        );
-      }, [livros, buscaTagIds, filhasPorCategoria, filtros.modoTags]);
-        
+        return filtrarLivros(livrosPorTags, filtrosLivros);
+      }, [
+        livros,
+        buscaTagIds,
+        filhasPorCategoria,
+        filtros.modoTags,
+        filtrosLivros,
+      ]);
+              
         
         
    
@@ -1472,7 +1491,11 @@ useEffect(() => {
         updating={updating}
         onUpdate={atualizarApp}
         filtrosAbertos={filtrosAbertos}
-        totalFiltrosAtivos={contarFiltrosAtivos(filtros)}
+        totalFiltrosAtivos={
+          modo === "imagens"
+            ? contarFiltrosAtivos(filtros)
+            : contarFiltrosLivrosAtivos(filtrosLivros)
+        }
         onToggleFiltros={() => setFiltrosAbertos((aberto) => !aberto)}
         gerenciadorAberto={gerenciadorAberto}
         onToggleGerenciador={() => setGerenciadorAberto((a) => !a)}
@@ -1506,22 +1529,33 @@ useEffect(() => {
         onAddTag={adicionarTagAoLivro}
         onRemoveTag={removerTagDoLivro}
         onCustomizeTag={personalizarTag}
-        onDeleteTag={excluirTag}
         onCreateCategory={criarTagCategoria}
         onChangeAutoTags={definirTagsAutomaticas}
       />
       )}
 
-      <FilterPanel
-        aberto={filtrosAbertos}
-        filtros={filtros}
-        onChange={setFiltros}
-        extensoesDisponiveis={extensoesDisponiveis}
-        totalMidias={medias.length}
-        totalFiltradas={mediasFiltradas.length}
-        onClose={() => setFiltrosAbertos(false)}
-        todasTags={todasTags}
+      {modo === "imagens" ? (
+        <FilterPanel
+          aberto={filtrosAbertos}
+          filtros={filtros}
+          onChange={setFiltros}
+          extensoesDisponiveis={extensoesDisponiveis}
+          totalMidias={medias.length}
+          totalFiltradas={mediasFiltradas.length}
+          onClose={() => setFiltrosAbertos(false)}
+          todasTags={todasTags}
         />
+      ) : (
+        <BookFilterPanel
+          aberto={filtrosAbertos}
+          filtros={filtrosLivros}
+          onChange={setFiltrosLivros}
+          totalLivros={livros.length}
+          totalFiltrados={livrosFiltrados.length}
+          onClose={() => setFiltrosAbertos(false)}
+          todasTags={todasTags}
+        />
+      )}
 
       <TagManager
         aberto={gerenciadorAberto}
