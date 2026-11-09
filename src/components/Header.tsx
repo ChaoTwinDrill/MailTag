@@ -11,6 +11,7 @@ type HeaderProps = {
   onImport: (medias: Media[]) => void;
   buscaTagIds: string[];
   onBuscaTagIds: (ids: string[]) => void;
+  avatarUrl: string | null;
   allTags: tags[];
   userEmail: string | null;
   onLogin: () => void;
@@ -23,8 +24,11 @@ type HeaderProps = {
   gerenciadorAberto: boolean;
   onToggleGerenciador: () => void;
   modo: ModoApp;
+  
   onCriarLivro: () => void;
   onChangeModo: (modo: ModoApp) => void;
+  onOpenSettings: () => void;
+  
 };
 
 function Header({
@@ -34,9 +38,11 @@ function Header({
   allTags,
   userEmail,
   onLogin,
+  avatarUrl,
   updating,
   onUpdate,
   updateAvailable,
+  onOpenSettings,
   filtrosAbertos,
   totalFiltrosAtivos,
   onToggleFiltros,
@@ -275,13 +281,21 @@ function Header({
 
 
 
-      <div className="relative ml-auto">
+      <div className="relative ml-auto shrink-0">
         <button
           onClick={() => setMenuAberto(!menuAberto)}
-          className="flex items-center justify-center text-white hover:opacity-70"
+          className="flex shrink-0 items-center justify-center text-white hover:opacity-70"
           title="Minha conta"
         >
-          <FaUserCircle className="w-8 h-8" />
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt="Minha conta"
+              className="h-12 w-12 shrink-0 rounded-lg object-cover"
+            />
+          ) : (
+            <FaUserCircle className="w-8 h-8" />
+          )}
         </button>
 
         {menuAberto && (
@@ -289,11 +303,14 @@ function Header({
             {userEmail ? (
               <>
                 <button
-                  className="w-full rounded-md p-2 text-left hover:bg-botao"
-                  onClick={() => setMenuAberto(false)}
-                >
-                  Minha conta
-                </button>
+                    className="w-full rounded-md p-2 text-left hover:bg-botao"
+                    onClick={() => {
+                      setMenuAberto(false);
+                      onOpenSettings();
+                    }}
+                  >
+                    Configurações
+                  </button>
 
                 {updateAvailable && (
                   <button

@@ -5,16 +5,16 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import CreateBook from "./components/CreateBook.tsx";
 import BookFilterPanel from "./components/BookFilterPanel";
-
+import Settings from "./components/Settings.tsx";
 import {
   FILTROS_LIVROS_PADRAO,
   contarFiltrosLivrosAtivos,
   filtrarLivros,
   type FiltrosLivros,
 } from "./lib/bookFilters";
+import { useFilaLivros } from "./lib/fIlaLivros.ts";
 
-
-
+import { lerAvatar, salvarAvatar, removerAvatar } from "./lib/avatar";
 import Auth from "./components/Auth.tsx";
 import Header from "./components/Header.tsx";
 import Mediagrid from "./components/Mediagrid.tsx";
@@ -215,14 +215,23 @@ function App() {
   const [tentativaGaleria, setTentativaGaleria] = useState(0);
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_PADRAO);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [avatar, setAvatar] = useState<string | null>(null);
   const [gerenciadorAberto, setGerenciadorAberto] = useState(false);
   const todasTagsRef = useRef<tags[]>([]);
   const [modo, setModo] = useState<ModoApp>("imagens");
   const [livros, setLivros] = useState<Book[]>([]);
   const [versaoLivros, setVersaoLivros] = useState(0);
   const [criandoLivro, setCriandoLivro] = useState(false);
+  const fila = useFilaLivros(user?.id ?? null, livros);
+  const [configAberta, setConfigAberta] = useState(false);
   const [filtrosLivros, setFiltrosLivros] =
   useState<FiltrosLivros>(FILTROS_LIVROS_PADRAO);
+
+
+  useEffect(() => {
+  setAvatar(user ? lerAvatar(user.id) : null);
+}, [user]);
+
     
   const [categoriaPadraoId, setCategoriaPadraoId] = useState<string | null>(() => {
   try {
@@ -540,6 +549,16 @@ const categoriaPadrao =
           cancelado = true;
         };
       }, [user, tentativaGaleria]);
+     
+      function alterarAvatar(dataUrl: string | null) {
+        if (!user) return;
+
+        setAvatar(dataUrl);
+
+        if (dataUrl) salvarAvatar(user.id, dataUrl);
+        else removerAvatar(user.id);
+      }
+
 
       useEffect(() => {
   if (!user || !galeriaCarregada) return;
@@ -978,6 +997,94 @@ const categoriaPadrao =
             )
           );
         }
+        
+async function adicionarTagAosLivros(livroIds: string[], nomeTag: string) {
+  const nome = nomeTag.trim();
+  if (!nome || livroIds.length === 0) return;
+
+  let { data: tagExistente, error } = await supabase
+    .from("tags")
+    .select("*")
+    .eq("library_id", LIBRARY_ID)
+    .eq("name", nome)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Erro ao procurar tag:", error);
+    return;
+  }
+
+  if (!tagExistente) {
+    const { data, error: erroCriacao } = await supabase
+      .from("tags")
+      .insert({
+        library_id: LIBRARY_ID,
+        name: nome,
+        parent_tag_id: categoriaPadrao?.id ?? null,
+      })
+      .select()
+      .single();
+
+    if (erroCriacao) {
+      console.error("Erro ao criar tag:", erroCriacao);
+      alert("Não foi possível criar a tag.");
+      return;
+    }
+
+    tagExistente = data;
+  }
+
+  const tag = converterTag(tagExistente);
+  const aplicar = tagsComImplicadas(tag);
+  const escolhidos = new Set(livroIds);
+  const linhas: { library_id: string; book_id: string; tag_id: string }[] = [];
+
+  const novasPorLivro = new Map<string, string[]>();
+
+  for (const livro of livros) {
+    if (!escolhidos.has(livro.id)) continue;
+
+    const faltam = aplicar.filter((t) => !livro.tagIds.includes(t.id));
+    if (faltam.length === 0) continue;
+
+    novasPorLivro.set(livro.id, faltam.map((t) => t.id));
+
+    for (const t of faltam) {
+      linhas.push({
+        library_id: LIBRARY_ID,
+        book_id: livro.id,
+        tag_id: t.id,
+      });
+    }
+  }
+
+  if (linhas.length === 0) return;
+
+  const { error: erroAssociacao } = await supabase
+    .from("book_tags")
+    .insert(linhas);
+
+  if (erroAssociacao) {
+    console.error("Erro ao associar tags aos livros:", erroAssociacao);
+    alert("Não foi possível adicionar a tag aos livros.");
+    return;
+  }
+
+  setTodasTags((atuais) => {
+    const novas = aplicar.filter((t) => !atuais.some((a) => a.id === t.id));
+    return novas.length ? [...atuais, ...novas] : atuais;
+  });
+
+  setLivros((atuais) =>
+    atuais.map((livro) => {
+      const novas = novasPorLivro.get(livro.id);
+      return novas
+        ? { ...livro, tagIds: [...new Set([...livro.tagIds, ...novas])] }
+        : livro;
+    })
+  );
+}
 
         async function removerTagDoLivro(livroId: string, tagId: string) {
           const { error } = await supabase
@@ -1484,12 +1591,14 @@ useEffect(() => {
         onImport={adicionarMedias}
         buscaTagIds={buscaTagIds}
         onBuscaTagIds={setBuscaTagIds}
+        avatarUrl={avatar}
         allTags={todasTags}
         userEmail={user?.email ?? null}
         onLogin={() => setMostrarAuth(true)}
         updateAvailable={updateAvailable}
         updating={updating}
         onUpdate={atualizarApp}
+        onOpenSettings={() => setConfigAberta(true)}
         filtrosAbertos={filtrosAbertos}
         totalFiltrosAtivos={
           modo === "imagens"
@@ -1524,14 +1633,17 @@ useEffect(() => {
          />
       ) : (
         <BookGrid
-        livros={livrosFiltrados}
-        allTags={todasTags}
-        onAddTag={adicionarTagAoLivro}
-        onRemoveTag={removerTagDoLivro}
-        onCustomizeTag={personalizarTag}
-        onCreateCategory={criarTagCategoria}
-        onChangeAutoTags={definirTagsAutomaticas}
-      />
+          livros={livrosFiltrados}
+          todosLivros={livros}
+          fila={fila}
+          allTags={todasTags}
+          onAddTag={adicionarTagAoLivro}
+          onRemoveTag={removerTagDoLivro}
+          onCustomizeTag={personalizarTag}
+          onCreateCategory={criarTagCategoria}
+          onChangeAutoTags={definirTagsAutomaticas}
+          onAddTagToMany={adicionarTagAosLivros}
+        />
       )}
 
       {modo === "imagens" ? (
@@ -1561,6 +1673,7 @@ useEffect(() => {
         aberto={gerenciadorAberto}
         allTags={todasTags}
         medias={medias}
+        
         onClose={() => setGerenciadorAberto(false)}
         onCustomizeTag={personalizarTag}
         onDeleteTag={excluirTag}
@@ -1569,7 +1682,18 @@ useEffect(() => {
         onChangeAutoTags={definirTagsAutomaticas}
         onChangeCategoriaPadrao={alterarCategoriaPadrao}
       />
+      
+      
+      {configAberta && 
+      <Settings
+      avatarUrl={avatar}
+      onClose={() => setConfigAberta(false)} 
+      onChangeAvatar={alterarAvatar}
+      />}
+
+
       <CreateBook
+
         aberto={criandoLivro}
         allTags={todasTags}
         categoriaPadraoId={categoriaPadrao?.id ?? null}
