@@ -3,11 +3,18 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import CreateBook from "./components/CreateBook.tsx";
+
+
+
 
 import Auth from "./components/Auth.tsx";
 import Header from "./components/Header.tsx";
 import Mediagrid from "./components/Mediagrid.tsx";
 import TagManager from "./components/TagManager.tsx";
+import BookGrid from "./components/BookGrid.tsx";
+import type { Book, ModoApp } from "./components/types/book.ts";
+
 
 import { supabase } from "./lib/supabase";
 import { LIBRARY_ID } from "./lib/library";
@@ -29,7 +36,7 @@ import {
 import "./global.css";
 
   const WORKER_URL = "https://mailtag-api.oririkkj.workers.dev";
-
+  
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Linha = Record<string, any>;
 
@@ -47,6 +54,7 @@ type Linha = Record<string, any>;
           borderColor: tag.border_color,
           textColor: tag.text_color,
           priority: tag.priority ?? null,
+          autoTagIds: tag.auto_tag_ids ?? [],
         };
       }
 
@@ -95,6 +103,94 @@ type Linha = Record<string, any>;
 
   return todos;
 }
+async function carregarLivros(): Promise<Book[]> {
+  const [livros, associacoes, paginas] = await Promise.all([
+    buscarTodos((de, ate) =>
+      supabase
+        .from("books")
+        .select("*")
+        .eq("library_id", LIBRARY_ID)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .order("id")
+        .range(de, ate)
+    ),
+    buscarTodos((de, ate) =>
+      supabase
+        .from("book_tags")
+        .select("book_id, tag_id")
+        .eq("library_id", LIBRARY_ID)
+        .order("book_id")
+        .order("tag_id")
+        .range(de, ate)
+    ),
+    buscarTodos((de, ate) =>
+      supabase
+        .from("medias")
+        .select("id, book_id")
+        .eq("library_id", LIBRARY_ID)
+        .eq("book_role", "page")
+        .is("deleted_at", null)
+        .order("id")
+        .range(de, ate)
+    ),
+  ]);
+
+  // Miniaturas das capas, em lotes para não estourar o tamanho da URL
+  const capaIds: string[] = livros
+    .map((l) => l.cover_media_id)
+    .filter((id): id is string => Boolean(id));
+
+    const miniaturaPorCapa = new Map<string, string | null>();
+    const originalPorCapa = new Map<string, string | null>();
+
+  
+    for (let i = 0; i < capaIds.length; i += 100) {
+  const { data, error } = await supabase
+    .from("medias")
+    .select("id, thumbnail_r2_key, r2_key")
+    .in("id", capaIds.slice(i, i + 100));
+
+  if (error) throw error;
+
+  for (const capa of data ?? []) {
+    miniaturaPorCapa.set(capa.id, capa.thumbnail_r2_key);
+    originalPorCapa.set(capa.id, capa.r2_key);
+  }
+}
+
+  const tagIdsPorLivro = new Map<string, string[]>();
+
+  for (const a of associacoes) {
+    const lista = tagIdsPorLivro.get(a.book_id);
+    if (lista) lista.push(a.tag_id);
+    else tagIdsPorLivro.set(a.book_id, [a.tag_id]);
+  }
+
+  const paginasPorLivro = new Map<string, number>();
+
+  for (const p of paginas) {
+    paginasPorLivro.set(p.book_id, (paginasPorLivro.get(p.book_id) ?? 0) + 1);
+  }
+
+  return livros.map((l) => ({
+    id: l.id,
+    libraryId: l.library_id,
+    name: l.name,
+    coverMediaId: l.cover_media_id,
+    coverThumbnailR2Key: l.cover_media_id
+      ? miniaturaPorCapa.get(l.cover_media_id) ?? null
+      : null,
+    coverR2Key: l.cover_media_id
+    ? originalPorCapa.get(l.cover_media_id) ?? null
+    : null,
+    pageCount: paginasPorLivro.get(l.id) ?? 0,
+    tagIds: tagIdsPorLivro.get(l.id) ?? [],
+    createdAt: new Date(l.created_at),
+    modifiedAt: new Date(l.updated_at),
+  }));
+}
+
 
 function App() {
   const [medias, setMedias] = useState<Media[]>([]);
@@ -114,6 +210,57 @@ function App() {
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [gerenciadorAberto, setGerenciadorAberto] = useState(false);
   const todasTagsRef = useRef<tags[]>([]);
+  const [modo, setModo] = useState<ModoApp>("imagens");
+  const [livros, setLivros] = useState<Book[]>([]);
+  const [versaoLivros, setVersaoLivros] = useState(0);
+  const [criandoLivro, setCriandoLivro] = useState(false);
+
+    
+  const [categoriaPadraoId, setCategoriaPadraoId] = useState<string | null>(() => {
+  try {
+    return localStorage.getItem("categoriaPadraoId");
+  } catch {
+    return null;
+  }
+});
+
+    async function definirTagsAutomaticas(tagId: string, ids: string[]) {
+        const limpos = ids.filter((id) => id !== tagId);
+
+        const { data, error } = await supabase
+          .from("tags")
+          .update({ auto_tag_ids: limpos, updated_at: new Date().toISOString() })
+          .eq("library_id", LIBRARY_ID)
+          .eq("id", tagId)
+          .select()
+          .single();
+
+        if (error) {
+          console.error("Erro ao salvar tags automáticas:", error);
+          alert("Não foi possível salvar as tags automáticas.");
+          return;
+        }
+
+        const atualizada = converterTag(data);
+
+        setTodasTags((atuais) => atuais.map((t) => (t.id === tagId ? atualizada : t)));
+      }
+
+
+function alterarCategoriaPadrao(id: string | null) {
+  setCategoriaPadraoId(id);
+
+  try {
+    if (id) localStorage.setItem("categoriaPadraoId", id);
+    else localStorage.removeItem("categoriaPadraoId");
+  } catch {
+  }
+}
+
+// Só vale se a tag ainda existir e continuar sendo uma categoria (sem pai)
+const categoriaPadrao =
+  todasTags.find((t) => t.id === categoriaPadraoId && t.parentTagId === null) ??
+  null;
 
     useEffect(() => {
       async function aoTeclar(e: KeyboardEvent) {
@@ -192,7 +339,7 @@ function App() {
 
         const token = data.session.access_token;
 
-        // 1) Banco de dados
+        //  Banco de dados
         try {
           const { error: erroTags } = await supabase
             .from("media_tags")
@@ -215,12 +362,10 @@ function App() {
           return;
         }
 
-        // 2) O registro já não existe: tira da tela e do cache local
         setMedias((atuais) => atuais.filter((m) => m.id !== media.id));
         setSelectedMedia((atual) => (atual?.id === media.id ? null : atual));
         await removerDoCache([media.r2Key, media.thumbnailR2Key]);
 
-        // 3) Arquivos na nuvem (se falhar, só avisa)
         try {
           const resposta = await fetch(WORKER_URL, {
             method: "DELETE",
@@ -307,6 +452,8 @@ function App() {
                   .eq("library_id", LIBRARY_ID)
                   .is("deleted_at", null)
                   .order("created_at", { ascending: false })
+                  .is("deleted_at", null)
+                  .is("book_id", null)
                   .order("id") // desempate para a paginação ficar estável
                   .range(de, ate)
               ),
@@ -435,7 +582,7 @@ function App() {
       { event: "INSERT", schema: "public", table: "medias", filter: filtro },
       (payload) => {
         const linha = payload.new as Linha;
-        if (linha.deleted_at) return;
+        if (linha.deleted_at || linha.book_id) return;
 
         const nova = converterMedia(linha);
 
@@ -600,7 +747,7 @@ function App() {
     }
   }
 //Criar tag na categoria
-  async function criarTagCategoria(nomeTag: string): Promise<tags | null> {
+  async function criarTagCategoria(nomeTag: string, categoriaId: string | null = null): Promise<tags | null> {
   const nome = nomeTag.trim();
 
   if (!nome) return null;
@@ -617,11 +764,11 @@ function App() {
     .insert({
       library_id: LIBRARY_ID,
       name: nome,
-      parent_tag_id: null,
+      parent_tag_id: categoriaId,
     })
     .select()
     .single();
-
+    
   if (error) {
     console.error("Erro ao criar tag:", error);
     alert("Não foi possível criar a tag.");
@@ -671,6 +818,7 @@ function App() {
           .insert({
             library_id: LIBRARY_ID,
             name: nome,
+            parent_tag_id: categoriaPadrao?.id ?? null,
           })
           .select()
           .single();
@@ -683,48 +831,168 @@ function App() {
         tagExistente = data;
       }
 
-      // Associa a tag à mídia
-      const { error: erroAssociacao } = await supabase
-        .from("media_tags")
-        .insert({
-          library_id: LIBRARY_ID,
-          media_id: mediaId,
-          tag_id: tagExistente.id,
-        });
+      const novaTag = converterTag(tagExistente);
 
-      if (erroAssociacao) {
-        console.error("Erro ao associar tag:", erroAssociacao);
-        return;
-      }
+        const aplicar = tagsComImplicadas(novaTag).filter(
+          (t) => !media.tags.some((x) => x.id === t.id)
+        );
 
-      // Converte os dados do Supabase para nossa interface
-      const novaTag: tags = converterTag(tagExistente);
+        if (aplicar.length === 0) return;
 
-      setTodasTags((atuais) => {
-        if (atuais.some((tag) => tag.id === novaTag.id)) {
-          return atuais;
+        const { error: erroAssociacao } = await supabase.from("media_tags").insert(
+          aplicar.map((t) => ({
+            library_id: LIBRARY_ID,
+            media_id: mediaId,
+            tag_id: t.id,
+          }))
+        );
+
+        if (erroAssociacao) {
+          console.error("Erro ao associar tag:", erroAssociacao);
+          return;
         }
 
-        return [...atuais, novaTag];
-      });
+        setTodasTags((atuais) => {
+          const novas = aplicar.filter((t) => !atuais.some((a) => a.id === t.id));
+          return novas.length ? [...atuais, ...novas] : atuais;
+        });
 
-      setMedias((mediasAntigas) =>
-        mediasAntigas.map((media) =>
-          media.id === mediaId
-            ? { ...media, tags: [...media.tags, novaTag] }
-            : media
-        )
-      );
+        const adicionar = (m: Media): Media =>
+          m.id === mediaId ? { ...m, tags: [...m.tags, ...aplicar] } : m;
 
-      setSelectedMedia((mediaAtual) => {
-        if (!mediaAtual || mediaAtual.id !== mediaId) return mediaAtual;
-
-        return {
-          ...mediaAtual,
-          tags: [...mediaAtual.tags, novaTag],
-        };
-      });
+        setMedias((atuais) => atuais.map(adicionar));
+        setSelectedMedia((atual) => (atual ? adicionar(atual) : atual));
+      
+      // Converte os dados do Supabase para nossa interface
+      
     }
+
+    // A tag + as que ela puxa automaticamente (e as que essas puxam)
+      function tagsComImplicadas(tag: tags): tags[] {
+        const porId = new Map(todasTags.map((t) => [t.id, t]));
+        porId.set(tag.id, tag);
+
+        const resultado: tags[] = [];
+        const visitadas = new Set<string>();
+        const fila = [tag.id];
+
+        while (fila.length > 0) {
+          const id = fila.shift()!;
+          if (visitadas.has(id)) continue;
+          visitadas.add(id);
+
+          const t = porId.get(id);
+          if (!t) continue;
+
+          resultado.push(t);
+          fila.push(...t.autoTagIds);
+        }
+
+        return resultado;
+      }
+
+      async function adicionarTagAoLivro(livroId: string, nomeTag: string) {
+          const nome = nomeTag.trim();
+          if (!nome) return;
+
+          const livro = livros.find((l) => l.id === livroId);
+          if (!livro) return;
+
+          let { data: tagExistente, error } = await supabase
+            .from("tags")
+            .select("*")
+            .eq("library_id", LIBRARY_ID)
+            .eq("name", nome)
+            .is("deleted_at", null)
+            .maybeSingle();
+
+          if (error) {
+            console.error("Erro ao procurar tag:", error);
+            return;
+          }
+
+          if (!tagExistente) {
+            const { data, error: erroCriacao } = await supabase
+              .from("tags")
+              .insert({
+                library_id: LIBRARY_ID,
+                name: nome,
+                parent_tag_id: categoriaPadrao?.id ?? null,
+              })
+              .select()
+              .single();
+
+            if (erroCriacao) {
+              console.error("Erro ao criar tag:", erroCriacao);
+              alert("Não foi possível criar a tag.");
+              return;
+            }
+
+            tagExistente = data;
+          }
+
+          const tag = converterTag(tagExistente);
+          const aplicar = tagsComImplicadas(tag).filter(
+            (t) => !livro.tagIds.includes(t.id)
+          );
+
+          if (aplicar.length === 0) return;
+
+          const { error: erroAssociacao } = await supabase
+            .from("book_tags")
+            .insert(
+              aplicar.map((t) => ({
+                library_id: LIBRARY_ID,
+                book_id: livroId,
+                tag_id: t.id,
+              }))
+            );
+
+          if (erroAssociacao) {
+            console.error("Erro ao associar tag ao livro:", erroAssociacao);
+            alert("Não foi possível adicionar a tag ao livro.");
+            return;
+          }
+
+          setTodasTags((atuais) => {
+            const novas = aplicar.filter((t) => !atuais.some((a) => a.id === t.id));
+            return novas.length ? [...atuais, ...novas] : atuais;
+          });
+
+          setLivros((atuais) =>
+            atuais.map((l) =>
+              l.id === livroId
+                ? {
+                    ...l,
+                    tagIds: [...new Set([...l.tagIds, ...aplicar.map((t) => t.id)])],
+                  }
+                : l
+            )
+          );
+        }
+
+        async function removerTagDoLivro(livroId: string, tagId: string) {
+          const { error } = await supabase
+            .from("book_tags")
+            .delete()
+            .eq("library_id", LIBRARY_ID)
+            .eq("book_id", livroId)
+            .eq("tag_id", tagId);
+
+          if (error) {
+            console.error("Erro ao remover tag do livro:", error);
+            alert("Não foi possível remover a tag do livro.");
+            return;
+          }
+
+          setLivros((atuais) =>
+            atuais.map((l) =>
+              l.id === livroId
+                ? { ...l, tagIds: l.tagIds.filter((id) => id !== tagId) }
+                : l
+            )
+          );
+        }
 
   // Remover tag
   
@@ -765,8 +1033,88 @@ function App() {
           
         }
       }
+      async function adicionarTagEmVarias(mediaIds: string[], nomeTag: string) {
+  const nome = nomeTag.trim();
 
+  if (!nome || mediaIds.length === 0) return;
 
+  let { data: tagExistente, error } = await supabase
+    .from("tags")
+    .select("*")
+    .eq("library_id", LIBRARY_ID)
+    .eq("name", nome)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Erro ao procurar tag:", error);
+    return;
+  }
+
+  if (!tagExistente) {
+    const { data, error: erroCriacao } = await supabase
+      .from("tags")
+      .insert({
+        library_id: LIBRARY_ID,
+        name: nome,
+        parent_tag_id: categoriaPadrao?.id ?? null,
+      })
+      .select()
+      .single();
+
+    if (erroCriacao) {
+      console.error("Erro ao criar tag:", erroCriacao);
+      alert("Não foi possível criar a tag.");
+      return;
+    }
+
+    tagExistente = data;
+  }
+
+  const tag = converterTag(tagExistente);
+    const aplicar = tagsComImplicadas(tag);
+    const escolhidos = new Set(mediaIds);
+
+    const novasPorMidia = new Map<string, tags[]>();
+    const linhas: { library_id: string; media_id: string; tag_id: string }[] = [];
+
+    for (const m of medias) {
+      if (!escolhidos.has(m.id)) continue;
+
+      const faltam = aplicar.filter((t) => !m.tags.some((x) => x.id === t.id));
+      if (faltam.length === 0) continue;
+
+      novasPorMidia.set(m.id, faltam);
+
+      for (const t of faltam) {
+        linhas.push({ library_id: LIBRARY_ID, media_id: m.id, tag_id: t.id });
+      }
+    }
+
+    if (linhas.length === 0) return;
+
+    const { error: erroAssociacao } = await supabase
+      .from("media_tags")
+      .insert(linhas);
+
+    if (erroAssociacao) {
+      console.error("Erro ao associar tag:", erroAssociacao);
+      alert("Não foi possível adicionar a tag às mídias.");
+      return;
+    }
+
+    const adicionar = (m: Media): Media => {
+      const novas = novasPorMidia.get(m.id);
+      return novas ? { ...m, tags: [...m.tags, ...novas] } : m;
+    };
+
+    setTodasTags((atuais) => {
+      const novas = aplicar.filter((t) => !atuais.some((a) => a.id === t.id));
+      return novas.length ? [...atuais, ...novas] : atuais;
+    });
+    setMedias((atuais) => atuais.map(adicionar));
+    setSelectedMedia((atual) => (atual ? adicionar(atual) : atual));
+    }
       // Importação
       function adicionarMedias(novasMedias: Media[]) {
         setMedias((mediasAntigas) => {
@@ -794,8 +1142,15 @@ function App() {
               .select();
 
             console.log("Associações removidas:", { associacoes, erroAssociacoes });
-
             if (erroAssociacoes) throw erroAssociacoes;
+            const { error: erroTagsLivros } = await supabase
+              .from("book_tags")
+              .delete()
+              .eq("library_id", LIBRARY_ID)
+              .eq("tag_id", tagId);
+
+            if (erroTagsLivros) throw erroTagsLivros;
+            
 
             const { data, error } = await supabase
               .from("tags")
@@ -819,7 +1174,12 @@ function App() {
                 tags: media.tags.filter((tag) => tag.id !== tagId),
               }))
             );
-
+            setLivros((atuais) =>
+              atuais.map((livro) => ({
+                ...livro,
+                tagIds: livro.tagIds.filter((id) => id !== tagId),
+              }))
+            );
             setSelectedMedia((atual) =>
               atual
                 ? {
@@ -926,9 +1286,104 @@ function App() {
           }
         }
 
+        useEffect(() => {
+  if (!user) {
+    setLivros([]);
+    return;
+  }
+
+  if (!galeriaCarregada) return;
+
+  let cancelado = false;
+
+  carregarLivros()
+    .then((lista) => {
+      if (!cancelado) setLivros(lista);
+    })
+    .catch((erro) => console.error("Erro ao carregar livros:", erro));
+
+  return () => {
+    cancelado = true;
+  };
+}, [user, galeriaCarregada, versaoLivros]);
+
+useEffect(() => {
+  if (!user || !galeriaCarregada) return;
+
+  const filtro = `library_id=eq.${LIBRARY_ID}`;
+  let timer: number | null = null;
+
+  function recarregar() {
+    if (timer !== null) window.clearTimeout(timer);
+    timer = window.setTimeout(() => setVersaoLivros((n) => n + 1), 500);
+  }
+
+  let canal = supabase.channel(`livros-${LIBRARY_ID}`);
+
+  // O Supabase não aceita filtro em DELETE, por isso ele vem separado
+  for (const tabela of ["books", "book_tags"]) {
+    canal = canal
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: tabela, filter: filtro },
+        recarregar
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: tabela, filter: filtro },
+        recarregar
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: tabela },
+        recarregar
+      );
+  }
+
+  // Só páginas e capas de livros interessam aqui
+  canal = canal
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "medias", filter: filtro },
+      (payload) => {
+        if ((payload.new as Linha).book_id) recarregar();
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "medias", filter: filtro },
+      (payload) => {
+        if ((payload.new as Linha).book_id) recarregar();
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "medias" },
+      recarregar
+    );
+
+  canal.subscribe();
+
+  return () => {
+    if (timer !== null) window.clearTimeout(timer);
+    supabase.removeChannel(canal);
+  };
+}, [user, galeriaCarregada]);
+
+    const extensoesDisponiveis = useMemo(
+      () =>
+        Array.from(
+          new Set(
+            medias
+              .map((m) => m.extension)
+              .filter((e): e is string => Boolean(e))
+          )
+        ).sort(),
+      [medias]
+    );
+
   // Filtrar mídias por tag
-    const mediasFiltradas = useMemo(() => {
-        // Categoria -> tags filhas, calculado uma vez
+    const filhasPorCategoria = useMemo(() => {
         const filhas = new Map<string, Set<string>>();
 
         for (const tag of todasTags) {
@@ -939,10 +1394,14 @@ function App() {
           else filhas.set(tag.parentTagId, new Set([tag.id]));
         }
 
+        return filhas;
+      }, [todasTags]);
+
+      const mediasFiltradas = useMemo(() => {
         const porTag = medias.filter((media) => {
           const corresponde = (tagId: string) =>
             media.tags.some(
-              (tag) => tag.id === tagId || filhas.get(tagId)?.has(tag.id)
+              (tag) => tag.id === tagId || filhasPorCategoria.get(tagId)?.has(tag.id)
             );
 
           if (filtros.tagsExcluidas.some(corresponde)) return false;
@@ -955,22 +1414,25 @@ function App() {
         });
 
         return filtrarMedias(porTag, filtros);
-      }, [medias, todasTags, buscaTagIds, filtros]);
+      }, [medias, filhasPorCategoria, buscaTagIds, filtros]);
 
-      const extensoesDisponiveis = useMemo(
-        () =>
-          Array.from(
-            new Set(
-              medias
-                .map((media) => media.extension)
-                .filter((ext): ext is string => Boolean(ext))
-            )
-          ).sort(),
-        [medias]
-      );
-   
-   
-   
+      const livrosFiltrados = useMemo(() => {
+        if (buscaTagIds.length === 0) return livros;
+
+        const corresponde = (livro: Book, tagId: string) =>
+          livro.tagIds.some(
+            (id) => id === tagId || filhasPorCategoria.get(tagId)?.has(id)
+          );
+
+        return livros.filter((livro) =>
+          filtros.modoTags === "todas"
+            ? buscaTagIds.every((t) => corresponde(livro, t))
+            : buscaTagIds.some((t) => corresponde(livro, t))
+        );
+      }, [livros, buscaTagIds, filhasPorCategoria, filtros.modoTags]);
+        
+        
+        
    
    
     if (erroCarregamento) {
@@ -1014,21 +1476,41 @@ function App() {
         onToggleFiltros={() => setFiltrosAbertos((aberto) => !aberto)}
         gerenciadorAberto={gerenciadorAberto}
         onToggleGerenciador={() => setGerenciadorAberto((a) => !a)}
+        modo={modo}
+        onCriarLivro={() => setCriandoLivro(true)}
+        onChangeModo={(novo) => {
+          setModo(novo);
+          setFiltrosAbertos(false);
+        }}
       />
-
-      <Mediagrid
-        medias={mediasFiltradas}
+      {modo === "imagens" ? (
+       <Mediagrid
+         medias={mediasFiltradas}
+         allTags={todasTags}
+         selectedMedia={selectedMedia}
+         onSelectMedia={selecionarMedia}
+         onAddTag={adicionarTag}
+         onRemoveTag={removerTag}
+         onDeleteMedia={removerMedia}
+         onDeleteTag={excluirTag}
+         onCustomizeTag={personalizarTag}
+         onCreateCategory={criarTagCategoria}
+         onRenameMedia={renomearMedia}
+         onAddTagToMany={adicionarTagEmVarias}
+         onChangeAutoTags={definirTagsAutomaticas}
+         />
+      ) : (
+        <BookGrid
+        livros={livrosFiltrados}
         allTags={todasTags}
-        selectedMedia={selectedMedia}
-        onSelectMedia={selecionarMedia}
-        onAddTag={adicionarTag}
-        onRemoveTag={removerTag}
-        onDeleteMedia={removerMedia}
-        onDeleteTag={excluirTag}
+        onAddTag={adicionarTagAoLivro}
+        onRemoveTag={removerTagDoLivro}
         onCustomizeTag={personalizarTag}
+        onDeleteTag={excluirTag}
         onCreateCategory={criarTagCategoria}
-        onRenameMedia={renomearMedia}
+        onChangeAutoTags={definirTagsAutomaticas}
       />
+      )}
 
       <FilterPanel
         aberto={filtrosAbertos}
@@ -1049,6 +1531,17 @@ function App() {
         onCustomizeTag={personalizarTag}
         onDeleteTag={excluirTag}
         onCreateCategory={criarTagCategoria}
+        categoriaPadraoId={categoriaPadrao?.id ?? null}
+        onChangeAutoTags={definirTagsAutomaticas}
+        onChangeCategoriaPadrao={alterarCategoriaPadrao}
+      />
+      <CreateBook
+        aberto={criandoLivro}
+        allTags={todasTags}
+        categoriaPadraoId={categoriaPadrao?.id ?? null}
+        onCreateTag={criarTagCategoria}
+        onClose={() => setCriandoLivro(false)}
+        onCreated={() => setVersaoLivros((n) => n + 1)}
       />
 
     </main>

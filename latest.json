@@ -1,11 +1,11 @@
 {
-    "version":  "0.2.6",
-    "notes":  "Imagem em tela Cheia, f11 deixa em tela cheia agora",
-    "pub_date":  "2026-11-08T22:46:36Z",
+    "version":  "0.5.0",
+    "notes":  "Tag base",
+    "pub_date":  "2026-11-08T23:22:07Z",
     "platforms":  {
                       "windows-x86_64":  {
-                                             "signature":  "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQVJ6MDk4T1RraEpFNkg1WGQvWVZpeFVNbkd4MWVJWEVTYW03WGU0NUZsQ0RmTllOYUZiL0RTcE85T2VWQmxwdmlpWk05ajZmZ3cyVmtvLysxM3JOSVpURExrNHZrandJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MTY3OTY5CWZpbGU6TWFpbFRhZ18wLjIuNV94NjQtc2V0dXAuZXhlCkNUZC80dUJFUkx2aVp2TUFHOERkZndoTjU0RGJzaytWRzI5VVkvcTZkako3d1VxNEU0dnpyVnBrQWhMbjc4RFROd1djQVdyQUUrd1N3VG9uQ3ZycERnPT0K",
-                                             "url":  "https://github.com/ChaoTwinDrill/MailTag/releases/download/v0.2.6/MailTag_0.2.6_x64-setup.exe"
+                                             "signature":  "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQVJ6MDk4T1RraEYxMGhPVUtDbUwrVDVXL3pHVWNaWVhxODBPV0RSUWhLTXZmL25MYWhLZjUvUXJXck1JdVZwRWVmSExBdTlxOVhLWE1nZXk3S01HaldvQ3pvTHFuSXdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MTc2NTI0CWZpbGU6TWFpbFRhZ18wLjIuNl94NjQtc2V0dXAuZXhlCkhJUGlxWEJVYnd3aEhpT084TmczVHBxODgybTRTcUZ4ejN4RjE0a1VlTUhzZG1LRTByQXJpdEs5TklmMWFGMnI5S1laZEJ6TEozeWhuZGMrS0Y5dENRPT0K",
+                                             "url":  "https://github.com/ChaoTwinDrill/MailTag/releases/download/v0.3.0/MailTag_0.3.0_x64_en-US.msi"
                                          }
                   }
 }

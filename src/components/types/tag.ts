@@ -11,4 +11,5 @@ export interface tags {
     borderColor: string | null;
     textColor: string | null;
     priority: number | null;
+    autoTagIds: string[];
 }

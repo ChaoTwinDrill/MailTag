@@ -12,6 +12,12 @@ import { copiarArquivoParaCache, salvarArquivoNoCache } from "../lib/cache";
 type ImportButtonProps = {
   onImport: (medias: Media[]) => void;
 };
+export type DadosLivro = {
+  book_id: string;
+  book_role: "page" | "cover";
+  page_position: number | null;
+};
+
 
 const WORKER_URL = "https://mailtag-api.oririkkj.workers.dev";
 
@@ -217,7 +223,7 @@ const LIMITE_SIMULTANEO = 3;
 // Deixamos uma folga para a miniatura. Aumente se o seu plano permitir.
 const LIMITE_UPLOAD_BYTES = 95 * 1024 * 1024;
 
-type ResultadoImportacao =
+export type ResultadoImportacao =
   | { midia: Media }
   | { nome: string; erro: string };
 
@@ -247,7 +253,7 @@ async function lerArquivoComoBlob(
   }
 }
 
-async function executarComLimite<T, R>(
+export async function executarComLimite<T, R>(
   itens: T[],
   limite: number,
   tarefa: (item: T, indice: number) => Promise<R>
@@ -272,10 +278,11 @@ async function executarComLimite<T, R>(
   return resultados;
 }
 
-async function importarArquivo(
+export async function importarArquivo(
   arquivo: string,
   rotulo: string,
-  token: string
+  token: string,
+  livro?: DadosLivro
 ): Promise<ResultadoImportacao> {
   // Cada arquivo tem seus próprios timers, para não colidirem
   // quando vários são importados ao mesmo tempo.
@@ -398,6 +405,7 @@ async function importarArquivo(
         height,
         file_created_at: criadaEm.toISOString(),
         file_modified_at: modificadaEm.toISOString(),
+        ...(livro ?? {}),
       });
 
     console.timeEnd(etapa("Banco Supabase"));

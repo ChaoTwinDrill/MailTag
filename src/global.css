@@ -3,6 +3,15 @@
 @import "@radix-ui/colors/violet.css";
 @import "tailwindcss";
 
+html, body {
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+input, textarea, [contenteditable="true"] {
+	user-select: text;
+	-webkit-user-select: text;
+}
 
 @theme {
 	--font-Alexandria: "Alexandria", sans-serif;

@@ -2,11 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { FaTimes } from "react-icons/fa";
 import type { Media } from "./types/media";
 import type { tags } from "./types/tag";
+import TagEditor from "./TagEditor";
 
 type TagManagerProps = {
   aberto: boolean;
   allTags: tags[];
   medias: Media[];
+  onChangeAutoTags: (tagId: string, ids: string[]) => void | Promise<void>;
+  onCreateCategory: (nome: string, categoriaId?: string | null) => Promise<tags | null>;
+  categoriaPadraoId: string | null;
+  onChangeCategoriaPadrao: (id: string | null) => void;
   onClose: () => void;
   onCustomizeTag: (
     tagId: string,
@@ -19,7 +24,7 @@ type TagManagerProps = {
     prioridade: number | null
   ) => void;
   onDeleteTag: (tagId: string) => void;
-  onCreateCategory: (nome: string) => Promise<tags | null>;
+  
 };
 
 const classeCampo =
@@ -41,6 +46,9 @@ function TagManager({
   onCustomizeTag,
   onDeleteTag,
   onCreateCategory,
+  categoriaPadraoId,
+  onChangeAutoTags,
+  onChangeCategoriaPadrao
 }: TagManagerProps) {
   const [busca, setBusca] = useState("");
   const [novaTag, setNovaTag] = useState("");
@@ -52,6 +60,8 @@ function TagManager({
   const [temBorda, setTemBorda] = useState(false);
   const [corBorda, setCorBorda] = useState("#ffffff");
   const [parentTagId, setParentTagId] = useState<string | null>(null);
+  const [autoIds, setAutoIds] = useState<string[]>([]);
+  const [buscaAuto, setBuscaAuto] = useState("");
 
   useEffect(() => {
     if (!aberto) {
@@ -105,9 +115,11 @@ function TagManager({
     setParentTagId(tag.parentTagId);
     setEditando(tag);
     setPrioridade(tag.priority?.toString() ?? "");
+    setAutoIds(tag.autoTagIds);
+    setBuscaAuto("");
   }
 
-  function salvar() {
+  async function salvar() {
     if (!editando) return;
     const numero = prioridade.trim() === "" ? null : Number(prioridade);
     const nomeLimpo = nome.trim();
@@ -128,19 +140,25 @@ function TagManager({
       return;
     }
 
-    onCustomizeTag(
-      editando.id,
-      nomeLimpo,
-      cor,
-      corTexto,
-      temBorda,
-      corBorda,
-      parentTagId,
-      Number.isFinite(numero) ? numero : null
-    );
+      await onCustomizeTag(
+        editando.id,
+        nomeLimpo,
+        cor,
+        corTexto,
+        temBorda,
+        corBorda,
+        parentTagId,
+        Number.isFinite(numero) ? numero : null
+      );
 
-    setEditando(null);
-  }
+      const mudou =
+        autoIds.length !== editando.autoTagIds.length ||
+        autoIds.some((id) => !editando.autoTagIds.includes(id));
+
+      if (mudou) await onChangeAutoTags(editando.id, autoIds);
+
+      setEditando(null);
+    }
 
   function excluir(tag: tags) {
     const usos = contagem.get(tag.id) ?? 0;
@@ -154,12 +172,18 @@ function TagManager({
     if (confirmar) onDeleteTag(tag.id);
   }
 
+    async function criarCategoriaTags() {
+    const categoria = await onCreateCategory("Tags", null);
+
+    if (categoria) onChangeCategoriaPadrao(categoria.id);
+  }
+
   async function criar() {
     const texto = novaTag.trim();
 
     if (!texto) return;
 
-    await onCreateCategory(texto);
+    await onCreateCategory(texto, categoriaPadraoId);
     setNovaTag("");
   }
 
@@ -196,134 +220,52 @@ function TagManager({
           </button>
         </div>
 
-        {editando ? (
-          <div className="overflow-y-auto p-4 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <label className="mb-2 block text-sm text-gray-300">Nome</label>
-            <input
-              value={nome}
-              autoComplete="off"
-              autoFocus
-              onChange={(e) => setNome(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && salvar()}
-              className={`${classeCampo} mb-5`}
-            />
-
-            <label className="mb-2 block text-sm text-gray-300">
-              Categoria pai
-            </label>
-            <select
-              value={parentTagId ?? ""}
-              disabled={temFilhas}
-              onChange={(e) => setParentTagId(e.target.value || null)}
-              className={`${classeCampo} ${temFilhas ? "mb-1" : "mb-5"} disabled:opacity-50`}
-            >
-              <option value="">Nenhuma</option>
-              {categorias.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-
-            {temFilhas && (
-              <p className="mb-5 text-sm text-gray-400">
-                Esta tag já é categoria de outras tags, por isso não pode ter
-                categoria pai.
-              </p>
-            )}  
-            {temFilhas && (
-              <>
-                <label className="mb-2 block text-sm text-gray-300">
-                  Prioridade da categoria
-                </label>
-                <input
-                  type="number"
-                  step={1}
-                  value={prioridade}
-                  onChange={(e) => setPrioridade(e.target.value)}
-                  placeholder="Menor número = aparece primeiro"
-                  className={`${classeCampo} mb-5`}
-                />
-              </>
-            )}
-            <label className="mb-2 block text-sm text-gray-300">
-              Cor de fundo
-            </label>
-            <div className="mb-5 flex items-center gap-3">
-              <input
-                type="color"
-                value={cor}
-                onChange={(e) => setCor(e.target.value)}
-                className="h-10 w-14 cursor-pointer rounded"
-              />
-              <span className="text-sm text-gray-400">{cor}</span>
-            </div>
-
-            <label className="mb-2 block text-sm text-gray-300">
-              Cor do texto
-            </label>
-            <div className="mb-5 flex items-center gap-3">
-              <input
-                type="color"
-                value={corTexto}
-                onChange={(e) => setCorTexto(e.target.value)}
-                className="h-10 w-14 cursor-pointer rounded"
-              />
-              <span className="text-sm text-gray-400">{corTexto}</span>
-            </div>
-
-            <label className="mb-3 flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={temBorda}
-                onChange={(e) => setTemBorda(e.target.checked)}
-              />
-              <span>Adicionar borda</span>
-            </label>
-
-            {temBorda && (
-              <div className="mb-5 flex items-center gap-3">
-                <input
-                  type="color"
-                  value={corBorda}
-                  onChange={(e) => setCorBorda(e.target.value)}
-                  className="h-10 w-14 cursor-pointer rounded"
-                />
-                <span className="text-sm text-gray-400">{corBorda}</span>
-              </div>
-            )}
-
-            <p className="mb-2 text-sm text-gray-300">Prévia</p>
-            <span
-              className="mb-6 inline-block rounded px-3 py-2"
-              style={{
-                backgroundColor: cor,
-                color: corTexto,
-                border: temBorda ? `2px solid ${corBorda}` : "none",
-              }}
-            >
-              {nome || "Nome da tag"}
-            </span>
-
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setEditando(null)}
-                className="rounded-md bg-botao px-4 py-2 hover:brightness-110"
-              >
-                Voltar
-              </button>
-              <button
-                type="button"
-                onClick={salvar}
-                className="rounded-md bg-botao-claro px-4 py-2 text-fundo hover:brightness-110"
-              >
-                Salvar
-              </button>
-            </div>
-          </div>
+       {editando ? (
+          <TagEditor
+            tag={editando}
+            allTags={allTags}
+            onSave={onCustomizeTag}
+            onChangeAutoTags={onChangeAutoTags}
+            onBack={() => setEditando(null)}
+            onCreateCategory={onCreateCategory}
+          />
         ) : (
           <>
+
+            <div className="px-4 pb-2">
+              <label className="mb-1 block text-xs text-gray-300">
+                Categoria padrão para novas tags
+              </label>
+
+              <div className="flex gap-2">
+                <select
+                  value={categoriaPadraoId ?? ""}
+                  onChange={(e) => onChangeCategoriaPadrao(e.target.value || null)}
+                  className={classeCampo}
+                >
+                  <option value="">Nenhuma</option>
+                  {allTags
+                    .filter((t) => t.parentTagId === null)
+                    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                </select>
+
+                {!allTags.some((t) => t.name.toLowerCase() === "tags") && (
+                  <button
+                    type="button"
+                    onClick={criarCategoriaTags}
+                    className="shrink-0 rounded-md bg-botao px-3 text-sm hover:brightness-110"
+                  >
+                    Criar "Tags"
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="flex gap-2 px-4 pb-2">
               <input
                 type="text"

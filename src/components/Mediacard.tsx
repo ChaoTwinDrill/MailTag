@@ -10,10 +10,11 @@ const ATRASO_PREFETCH_MS = 250;
 
 interface MediaCardProps {
     media: Media;
-    onSelectMedia: (media: Media | null) => void;
+    onSelectMedia: (media: Media, e: React.MouseEvent) => void;
     onContextMenu: (media: Media, x: number, y: number) => void;
     selected: boolean;
     onOpen: (media: Media) => void;
+    
 }
 
 function MediaCard({
@@ -98,7 +99,7 @@ function MediaCard({
                     : ""
             }`}
             style={proporcao ? { aspectRatio: proporcao } : undefined}
-            onClick={() => onSelectMedia(media)} onDoubleClick={() => onOpen(media)}
+            onClick={(e) => onSelectMedia(media, e)} onDoubleClick={() => onOpen(media)}
             onMouseEnter={iniciarPrefetch}
             onMouseLeave={cancelarPrefetch}
             onContextMenu={(e) => {

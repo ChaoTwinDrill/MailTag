@@ -3,7 +3,8 @@ import type { Media } from "./types/media";
 import type { tags } from "./types/tag";
 
 import ImportButton from "./Importbutton";
-import { FaSearch, FaFilter, FaTags, FaUserCircle, FaTimes } from "react-icons/fa";
+import { FaSearch, FaFilter, FaTags, FaUserCircle, FaTimes, FaImages, FaBook, FaRegPlusSquare  } from "react-icons/fa";
+import type { ModoApp } from "./types/book";
 import { supabase } from "../lib/supabase";
 
 type HeaderProps = {
@@ -21,6 +22,9 @@ type HeaderProps = {
   onToggleFiltros: () => void;
   gerenciadorAberto: boolean;
   onToggleGerenciador: () => void;
+  modo: ModoApp;
+  onCriarLivro: () => void;
+  onChangeModo: (modo: ModoApp) => void;
 };
 
 function Header({
@@ -38,6 +42,9 @@ function Header({
   onToggleFiltros,
   gerenciadorAberto,
   onToggleGerenciador,
+  modo,
+  onCriarLivro,
+  onChangeModo,
 }: HeaderProps) {
   const [menuAberto, setMenuAberto] = useState(false);
   const [textoBusca, setTextoBusca] = useState("");
@@ -193,28 +200,44 @@ function Header({
           </div>
         )}
       </form>
+      {modo === "livros" && (
+        <button
+          type="button"
+          onClick={onCriarLivro}
+          className="px-3 py-2 bg-botao rounded-lg
+            text-white transition-colors focus:outline-3 hover:bg-botao/80
+            focus:outline-offset-2 focus:outline-botao flex items-center
+            gap-1 font-Alexandria font-[500] shrink-0"
+          >
+      <FaRegPlusSquare className="text-lg" />
+          CRIAR LIVRO
+        </button>
+      )}
+      {modo === "imagens" && (
+        <>
+            <ImportButton onImport={onImport} />
+            <button
+              type="button"
+              onClick={onToggleFiltros}
+              title="Filtros"
+              aria-pressed={filtrosAbertos}
+              className="relative hover:opacity-70"
+            >
+              <FaFilter
+                className={`w-15 h-7 ${
+                  filtrosAbertos ? "text-botao-claro" : "text-white"
+                }`}
+              />
 
-      <ImportButton onImport={onImport} />
-
-      <button
-        type="button"
-        onClick={onToggleFiltros}
-        title="Filtros"
-        aria-pressed={filtrosAbertos}
-        className="relative hover:opacity-70"
-      >
-        <FaFilter
-          className={`w-15 h-7 ${
-            filtrosAbertos ? "text-botao-claro" : "text-white"
-          }`}
-        />
-
-        {totalFiltrosAtivos > 0 && (
-          <span className="absolute -right-1 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-botao-claro px-1 text-xs font-bold text-fundo">
-            {totalFiltrosAtivos}
-          </span>
-        )}
-      </button>
+              {totalFiltrosAtivos > 0 && (
+                <span className="absolute -right-1 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-botao-claro px-1 text-xs font-bold text-fundo">
+                  {totalFiltrosAtivos}
+                </span>
+              )}
+            </button>
+                </>
+      )}
+      
         <button
               type="button"
               onClick={onToggleGerenciador}
@@ -227,7 +250,32 @@ function Header({
             gerenciadorAberto ? "text-botao-claro" : "text-white"
             }`}
           />
-          </button>
+        </button>
+        <div className="flex shrink-0 overflow-hidden rounded-lg bg-botao">
+            {(
+              [
+                ["imagens", FaImages],
+                ["livros", FaBook],
+              ] as const
+            ).map(([valor, Icone]) => (
+              <button
+                key={valor}
+                type="button"
+                aria-pressed={modo === valor}
+                onClick={() => onChangeModo(valor)}
+                className={`flex items-center gap-2 px-3 py-3 font-Alexandria font-[500] transition ${
+                  modo === valor
+                    ? "bg-botao-claro text-fundo"
+                    : "text-white hover:bg-botao/80"
+                }`}
+              > 
+                <Icone/>        
+              </button>
+            ))}
+          </div>
+
+
+
       <div className="relative ml-auto">
         <button
           onClick={() => setMenuAberto(!menuAberto)}
@@ -275,6 +323,7 @@ function Header({
               >
                 Entrar
               </button>
+              
             )}
 
           </div>

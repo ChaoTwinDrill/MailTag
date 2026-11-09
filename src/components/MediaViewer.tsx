@@ -9,15 +9,10 @@ type MediaViewerProps = {
   total: number;
   onNavegar: (delta: number) => void;
   onClose: () => void;
+  permitirAvancarNoFim?: boolean;
 };
 
-function MediaViewer({
-  media,
-  posicao,
-  total,
-  onNavegar,
-  onClose,
-}: MediaViewerProps) {
+function MediaViewer({ media, posicao, total, onNavegar, onClose, permitirAvancarNoFim }: MediaViewerProps) {
   // Miniatura mostrada enquanto o original ainda carrega
   const [previa, setPrevia] = useState("");
 
@@ -62,7 +57,7 @@ function MediaViewer({
   }, [onNavegar, onClose]);
 
   const temAnterior = posicao > 0;
-  const temProxima = posicao >= 0 && posicao < total - 1;
+  const temProxima = (posicao >= 0 && posicao < total - 1) || !!permitirAvancarNoFim;
   const ehVideo = media.mimeType?.startsWith("video/");
   const origem = media.src || previa;
 
