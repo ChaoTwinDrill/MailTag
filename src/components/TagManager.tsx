@@ -3,6 +3,7 @@ import { FaTimes } from "react-icons/fa";
 import type { Media } from "./types/media";
 import type { tags } from "./types/tag";
 import TagEditor from "./TagEditor";
+import type { Book } from "./types/book";
 
 type TagManagerProps = {
   aberto: boolean;
@@ -24,7 +25,7 @@ type TagManagerProps = {
     prioridade: number | null
   ) => void;
   onDeleteTag: (tagId: string) => void;
-  
+  livros: Book[];
 };
 
 const classeCampo =
@@ -39,6 +40,7 @@ function estiloTag(t: tags) {
 }
 
 function TagManager({
+  livros,
   aberto,
   allTags,
   medias,
@@ -53,6 +55,7 @@ function TagManager({
   const [busca, setBusca] = useState("");
   const [novaTag, setNovaTag] = useState("");
   const [editando, setEditando] = useState<tags | null>(null);
+  const [ordem, setOrdem] = useState<"nome" | "mais" | "menos">("nome");
 
   useEffect(() => {
     if (!aberto) {
@@ -75,38 +78,57 @@ function TagManager({
   }, [aberto, editando, onClose]);
 
   // Quantas mídias usam cada tag
-  const contagem = useMemo(() => {
-    const mapa = new Map<string, number>();
+  const contagens = useMemo(() => {
+  const deMidias = new Map<string, number>();
+  const deLivros = new Map<string, number>();
 
-    for (const media of medias) {
-      for (const tag of media.tags) {
-        mapa.set(tag.id, (mapa.get(tag.id) ?? 0) + 1);
-      }
+  for (const media of medias) {
+    for (const tag of media.tags) {
+      deMidias.set(tag.id, (deMidias.get(tag.id) ?? 0) + 1);
     }
+  }
 
-    return mapa;
-  }, [medias]);
+  for (const livro of livros) {
+    for (const id of livro.tagIds) {
+      deLivros.set(id, (deLivros.get(id) ?? 0) + 1);
+    }
+  }
+
+  return { midias: deMidias, livros: deLivros };
+}, [medias, livros]);
+
+const totalDeUsos = (id: string) =>
+  (contagens.midias.get(id) ?? 0) + (contagens.livros.get(id) ?? 0);
 
   if (!aberto) return null;
 
   const termo = busca.trim().toLowerCase();
 
   const lista = allTags
-    .filter((t) => !termo || t.name.toLowerCase().includes(termo))
-    .sort((a, b) =>
-      a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" })
-    );
+  .filter((t) => !termo || t.name.toLowerCase().includes(termo))
+  .sort((a, b) => {
+    if (ordem !== "nome") {
+      const diferenca =
+        ordem === "mais"
+          ? totalDeUsos(b.id) - totalDeUsos(a.id)
+          : totalDeUsos(a.id) - totalDeUsos(b.id);
+
+      if (diferenca !== 0) return diferenca;
+    }
+
+    return a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
+  });
 
   function abrirEdicao(tag: tags) {
   setEditando(tag);
 }
 
   function excluir(tag: tags) {
-    const usos = contagem.get(tag.id) ?? 0;
+    const usos = totalDeUsos(tag.id);
 
     const confirmar = window.confirm(
       usos > 0
-        ? `A tag "${tag.name}" está em ${usos} mídia(s). Deseja excluí-la de toda a galeria?`
+        ? `A tag "${tag.name}" está em ${usos} ${usos === 1 ? "item" : "itens"}. Deseja excluí-la de toda a galeria?`
         : `Deseja excluir a tag "${tag.name}"?`
     );
 
@@ -200,32 +222,45 @@ function TagManager({
             </div>
 
             <div className="flex gap-2 px-4 pb-2">
-              <input
-                type="text"
-                autoComplete="off"
-                placeholder="Buscar tag..."
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                className={classeCampo}
-              />
-              <input
-                type="text"
-                autoComplete="off"
-                placeholder="Nova tag..."
-                value={novaTag}
-                onChange={(e) => setNovaTag(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && criar()}
-                className={classeCampo}
-              />
-              <button
-                type="button"
-                onClick={criar}
-                disabled={!novaTag.trim()}
-                className="shrink-0 rounded-md bg-botao px-3 text-sm hover:brightness-110 disabled:opacity-40"
-              >
-                Criar
-              </button>
-            </div>
+            <input
+              type="text"
+              autoComplete="off"
+              placeholder="Buscar tag..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              className={`${classeCampo} min-w-0 flex-1`}
+            />
+
+            <select
+              value={ordem}
+              onChange={(e) => setOrdem(e.target.value as "nome" | "mais" | "menos")}
+              title="Ordenar"
+              className="w-40 shrink-0 rounded-md bg-fundo p-2 text-sm outline-none focus:ring-2 focus:ring-purple-400 [color-scheme:dark]"
+            >
+              <option value="nome">Nome (A–Z)</option>
+              <option value="mais">Mais usadas</option>
+              <option value="menos">Menos usadas</option>
+            </select>
+
+            <input
+              type="text"
+              autoComplete="off"
+              placeholder="Nova tag..."
+              value={novaTag}
+              onChange={(e) => setNovaTag(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && criar()}
+              className={`${classeCampo} min-w-0 flex-1`}
+            />
+
+            <button
+              type="button"
+              onClick={criar}
+              disabled={!novaTag.trim()}
+              className="shrink-0 rounded-md bg-botao px-3 text-sm hover:brightness-110 disabled:opacity-40"
+            >
+              Criar
+            </button>
+          </div>
 
             <div className="flex-1 overflow-y-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {lista.length === 0 ? (
@@ -237,7 +272,8 @@ function TagManager({
                   const categoria = allTags.find(
                     (t) => t.id === tag.parentTagId
                   );
-                  const usos = contagem.get(tag.id) ?? 0;
+                  const midiasDaTag = contagens.midias.get(tag.id) ?? 0;
+                  const livrosDaTag = contagens.livros.get(tag.id) ?? 0;
 
                   return (
                     <div
@@ -254,7 +290,9 @@ function TagManager({
                       <span className="min-w-0 flex-1 truncate text-xs text-gray-300">
                         {tag.priority !== null && `Prioridade ${tag.priority} · `}
                         {categoria ? `${categoria.name} · ` : ""}
-                        {usos} {usos === 1 ? "mídia" : "mídias"}
+                        {midiasDaTag} {midiasDaTag === 1 ? "mídia" : "mídias"}
+                        {livrosDaTag > 0 &&
+                          ` · ${livrosDaTag} ${livrosDaTag === 1 ? "livro" : "livros"}`}
                       </span>
 
                       <button

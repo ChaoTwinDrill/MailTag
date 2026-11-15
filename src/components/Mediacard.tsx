@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Media } from "./types/media";
 import { obterArquivoCacheado } from "../lib/cache";
-
+import { FaPlay } from "react-icons/fa";
+import { formatarDuracao } from "../lib/duracao";
 // Originais de até este tamanho são baixados em segundo plano
 // quando o mouse fica sobre o card, para abrirem rápido ao clicar.
 const LIMITE_PREFETCH_BYTES = 30 * 1024 * 1024;
@@ -27,7 +28,7 @@ function MediaCard({
     const cardRef = useRef<HTMLDivElement>(null);
     const prefetchRef = useRef<number | null>(null);
     const [imagem, setImagem] = useState(media.thumbnailSrc);
-
+    const eVideo = media.mimeType?.startsWith("video/");
     // Reserva o espaço do card antes da miniatura carregar,
     // evitando que o layout em colunas "pule" durante o scroll.
     const proporcao =
@@ -93,7 +94,7 @@ function MediaCard({
     return (
         <div
             ref={cardRef}
-            className={`overflow-hidden rounded-lg bg-card cursor-pointer ${
+            className={`relative overflow-hidden rounded-lg bg-card cursor-pointer ${
                 selected
                     ? "outline outline-4 outline-purple-200 brightness-69"
                     : ""
@@ -102,6 +103,7 @@ function MediaCard({
             onClick={(e) => onSelectMedia(media, e)} onDoubleClick={() => onOpen(media)}
             onMouseEnter={iniciarPrefetch}
             onMouseLeave={cancelarPrefetch}
+            data-media-card
             onContextMenu={(e) => {
                 e.preventDefault();
                 onContextMenu(media, e.clientX, e.clientY);
@@ -121,6 +123,12 @@ function MediaCard({
             ) : proporcao ? null : (
                 <div className="w-full aspect-square bg-card" />
             )}
+            {eVideo && (
+                <span className="absolute bottom-2 right-2 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-xs font-semibold text-white">
+                    <FaPlay className="h-2.5 w-2.5" />
+                    {media.durationSeconds != null && formatarDuracao(media.durationSeconds)}
+                </span>
+                )}
         </div>
     );
 }

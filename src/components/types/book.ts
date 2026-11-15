@@ -10,5 +10,6 @@ export interface Book {
     tagIds: string[];
     createdAt: Date;
     modifiedAt: Date;
+    previousBookId?: string | null;
     coverR2Key: string | null;
 }

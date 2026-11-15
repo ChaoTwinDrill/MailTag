@@ -1,22 +1,26 @@
 import { useEffect, useState, useRef } from "react";
 import Tagbutton from "./Tagbutton";
 import TagEditor from "./TagEditor";
-
+import VideoPlayer from "./VideoPlayer";
 import type { Media } from "./types/media";
 import type { tags } from "./types/tag";
 
 import { obterArquivoCacheado } from "../lib/cache";
+import Sequencia from "./Sequencia";
+import { formatarDuracao } from "../lib/duracao";
 
+const miniaturaDaMidia = (m: Media) => m.thumbnailR2Key;
+const anteriorDaMidia = (m: Media) => m.previousMediaId ?? null;
 interface MediaInfoProps {
   media: Media | null;
   allTags: tags[];
-  
   onAddTag: (mediaId: string, nomeTag: string) => void;
   onRemoveTag: (mediaId: string, tagId: string) => void;
   onDeleteTag: (tagId: string) => void;
-
+  todasMedias: Media[];
+  onSetPrevious: (mediaId: string, anteriorId: string | null) => void;
+  onOpenRelated: (mediaId: string) => void;
   onOpenViewer: () => void;
-
   onCustomizeTag: (
     tagId: string,
     nome: string,
@@ -27,12 +31,10 @@ interface MediaInfoProps {
     parentTagId: string | null,
     prioridade: number | null
   ) => void;
-
   onChangeAutoTags: (tagId: string, ids: string[]) => void | Promise<void>;
-
   onRenameMedia: (mediaId: string, novoNome: string) => void;
-
   onCreateCategory: (nome: string) => Promise<tags | null>;
+  onDurationKnown: (mediaId: string, segundos: number) => void;
 }
 
 function formatarTamanho(bytes: number) {
@@ -60,11 +62,15 @@ function MediaInfo({
   onAddTag,
   onRemoveTag,
   onDeleteTag,
+  onDurationKnown,
   onCustomizeTag,
   onChangeAutoTags,
   onRenameMedia,
   onOpenViewer,
   onCreateCategory,
+  todasMedias,
+  onSetPrevious,
+  onOpenRelated,
 }: MediaInfoProps) {
   const [menu, setMenu] = useState<{
     tag: tags;
@@ -79,7 +85,7 @@ function MediaInfo({
   const [nomeEditado, setNomeEditado] = useState("");
 
   const cancelouNome = useRef(false);
-
+  
   // Miniatura mostrada enquanto o original ainda está sendo carregado
   const [previa, setPrevia] = useState("");
 
@@ -190,13 +196,16 @@ function MediaInfo({
     <aside className="relative w-1/4 min-h-0 shrink-0 bg-base overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden text-white">
       {/* Prévia da mídia */}
       {media.mimeType?.startsWith("video/") ? (
-        <video
+        <VideoPlayer
           key={media.id}
+          className="bg-black"
           src={media.src || undefined}
           poster={previa || undefined}
-          controls
-          preload="metadata"
-          className="w-full"
+          videoClassName="w-full"
+          onExpandir={onOpenViewer}
+          onMetadata={(duracao) => {
+            if (media.durationSeconds == null) onDurationKnown(media.id, duracao);
+          }}
         />
       ) : media.src || previa ? (
         <img
@@ -341,6 +350,17 @@ function MediaInfo({
           </div>
         )}
 
+        <Sequencia
+        rotuloItem="mídia"
+        atualId={media.id}
+        itens={todasMedias}
+        getAnteriorId={anteriorDaMidia}
+        getMiniaturaKey={miniaturaDaMidia}
+        proporcao="aspect-square"
+        onDefinirAnterior={onSetPrevious}
+        onAbrir={onOpenRelated}
+      />
+
         {/* Informações da mídia */}
         <p className="mt-2 text-sm text-gray-400 font-Alexandria font-[500]">
           Tamanho: {formatarTamanho(media.size)}
@@ -356,6 +376,11 @@ function MediaInfo({
           Extensão:{" "}
           {media.name.split(".").pop()?.toUpperCase() ?? "Sem extensão"}
         </p>
+        {media.durationSeconds != null && (
+          <p className="mt-1 text-sm text-gray-400 font-Alexandria font-[500]">
+            Duração: {formatarDuracao(media.durationSeconds)}
+          </p>
+        )}
 
         <p className="mt-1 text-sm text-gray-400 font-Alexandria font-[500]">
           Criado em: {formatarData(media.createdAt)}

@@ -4,6 +4,7 @@ import type { tags } from "./types/tag";
 import { obterArquivoCacheado } from "../lib/cache";
 import BookTagbutton from "./BookTagButton";
 import TagEditor from "./TagEditor";
+import Sequencia from "./Sequencia";
 
 type Props = {
   livro: Book | null;
@@ -22,8 +23,14 @@ type Props = {
     parentTagId: string | null,
     prioridade: number | null
   ) => void;
+todosLivros: Book[];
+onSetPrevious: (livroId: string, anteriorId: string | null) => void;
+onOpenRelated: (livroId: string) => void;
 onChangeAutoTags: (tagId: string, ids: string[]) => void | Promise<void>;
 };
+
+const anteriorDoLivro = (l: Book) => l.previousBookId ?? null;
+const miniaturaDoLivro = (l: Book) => l.coverThumbnailR2Key;
 
 function BookInfo({
   livro,
@@ -33,10 +40,12 @@ function BookInfo({
   onRemoveTag,
   onCustomizeTag,
   onCreateCategory,
-  onChangeAutoTags
+  onChangeAutoTags,
+  todosLivros,
+  onOpenRelated,
+  onSetPrevious,
 }: Props) {
   const [capa, setCapa] = useState("");
-  const chave = livro?.coverThumbnailR2Key;
   const grupos = new Map<string, { categoria: tags | null; tags: tags[] }>();
   const [tagEditando, setTagEditando] = useState<tags | null>(null);
    const [menu, setMenu] = useState<{
@@ -93,26 +102,6 @@ function BookInfo({
             cancelado = true;
         };
         }, [livro?.id, livro?.coverThumbnailR2Key, livro?.coverR2Key]);
-
-
-  useEffect(() => {
-    setCapa("");
-
-   
-    if (!chave) return;
-
-    let cancelado = false;
-
-    obterArquivoCacheado(chave)
-      .then((src) => {
-        if (!cancelado) setCapa(src);
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelado = true;
-    };
-  }, [livro?.id, livro?.coverThumbnailR2Key]);
 
   if (!livro) {
     return (
@@ -228,6 +217,17 @@ function BookInfo({
             ))}
           </div>
         )}
+
+       <Sequencia
+          rotuloItem="livro"
+          atualId={livro.id}
+          itens={todosLivros}
+          getAnteriorId={anteriorDoLivro}
+          getMiniaturaKey={miniaturaDoLivro}
+          proporcao="aspect-[3/4]"
+          onDefinirAnterior={onSetPrevious}
+          onAbrir={onOpenRelated}
+        />
 
                   <p className="mt-2 font-Alexandria text-sm font-[500] text-gray-400">
                     {livro.pageCount} {livro.pageCount === 1 ? "página" : "páginas"}

@@ -28,6 +28,8 @@ type BookGridProps = {
   ) => void;
   onCreateCategory: (nome: string, categoriaId?: string | null) => Promise<tags | null>;
   onChangeAutoTags: (tagId: string, ids: string[]) => void | Promise<void>;
+  onDeleteBooks: (livros: Book[]) => void;
+  onSetPrevious: (livroId: string, anteriorId: string | null) => void;
 };
 
 function BookCard({
@@ -113,12 +115,14 @@ function BookGrid({
   todosLivros,
   fila,
   allTags,
+  onDeleteBooks,
   onAddTag,
   onAddTagToMany,
   onRemoveTag,
   onCustomizeTag,
   onCreateCategory,
   onChangeAutoTags,
+  onSetPrevious,
 }: BookGridProps) {
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
@@ -128,8 +132,8 @@ function BookGrid({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [modal, setModal] = useState<"adicionar" | "remover" | null>(null);
   const ancoraRef = useRef<string | null>(null);
-
-  const selecionado = livros.find((l) => l.id === selecionadoId) ?? null;
+  const [leitorNoFim, setLeitorNoFim] = useState(false);
+  const selecionado = todosLivros.find((l) => l.id === selecionadoId) ?? null;
 
   // O livro do leitor vem da lista completa, para não sumir com os filtros
   const leitor = leitorId
@@ -151,6 +155,13 @@ function BookGrid({
       return novas.size === atuais.size ? atuais : novas;
     });
   }, [livros]);
+
+  function abrirRelacionado(id: string) {
+    setMenu(null);
+    setSelecionadas(new Set([id]));
+    setSelecionadoId(id);
+    ancoraRef.current = id;
+  }
 
   function limparSelecao() {
     setSelecionadas(new Set());
@@ -214,6 +225,7 @@ function BookGrid({
   }
 
   function abrirLeitor(id: string, daFila: boolean) {
+    setLeitorNoFim(false);
     setLeitorId(id);
     setLendoDaFila(daFila);
     seguirSelecao(id);
@@ -244,6 +256,14 @@ function BookGrid({
     setMenu(null);
 
     if (alvo) abrirLeitor(alvo, true);
+  } 
+
+  function excluirSelecionados() {
+    const alvo = livros.filter((l) => selecionadas.has(l.id));
+
+    setMenu(null);
+
+    if (alvo.length > 0) onDeleteBooks(alvo);
   }
 
   function tocarDaFila(id: string) {
@@ -252,6 +272,7 @@ function BookGrid({
   }
 
   function fimDoLivro() {
+    setLeitorNoFim(false);
     if (lendoDaFila) {
       const proximoId = fila.proximo();
 
@@ -274,7 +295,42 @@ function BookGrid({
     } else {
       setLeitorId(null);
     }
+  } 
+function irParaLivro(delta: 1 | -1, noFim = false) {
+  let id: string | null | undefined;
+
+  if (lendoDaFila) {
+    id = delta === 1 ? fila.proximo() : fila.anterior();
+  } else {
+    const posicao = livros.findIndex((l) => l.id === leitorId);
+
+    if (posicao === -1) return;
+
+    id = livros[posicao + delta]?.id;
   }
+
+  if (!id) return;
+
+  setLeitorNoFim(noFim);
+  setLeitorId(id);
+  seguirSelecao(id);
+}
+
+useEffect(() => {
+  if (!leitorId) return;
+
+  function aoTeclar(e: KeyboardEvent) {
+    if (e.key !== "PageDown" && e.key !== "PageUp") return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    irParaLivro(e.key === "PageDown" ? 1 : -1);
+  }
+
+  window.addEventListener("keydown", aoTeclar, true);
+
+  return () => window.removeEventListener("keydown", aoTeclar, true);
+});
 
   useEffect(() => {
     function fecharMenu() {
@@ -305,6 +361,18 @@ function BookGrid({
 
         limparSelecao();
       }
+      if (e.key === "Delete") {
+        if (emCampo || leitorId || modal) return;
+        if (document.querySelector("[data-painel-filtros]")) return;
+
+        const alvo = livros.filter((l) => selecionadas.has(l.id));
+
+        if (alvo.length === 0) return;
+
+        e.preventDefault();
+        setMenu(null);
+        onDeleteBooks(alvo);
+      }
     }
 
     window.addEventListener("click", fecharMenu);
@@ -314,7 +382,7 @@ function BookGrid({
       window.removeEventListener("click", fecharMenu);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [modal, menu, leitorId, filaAberta]);
+  }, [modal, menu, leitorId, filaAberta, livros, selecionadas, onDeleteBooks]);
 
   const quantidade = selecionadas.size;
   const sufixo = quantidade > 1 ? ` (${quantidade})` : "";
@@ -356,6 +424,9 @@ function BookGrid({
         onCustomizeTag={onCustomizeTag}
         onChangeAutoTags={onChangeAutoTags}
         onCreateCategory={onCreateCategory}
+        todosLivros={todosLivros}
+        onSetPrevious={onSetPrevious}
+        onOpenRelated={abrirRelacionado}
       />
 
       {leitor && (
@@ -364,6 +435,8 @@ function BookGrid({
           livro={leitor}
           onClose={() => setLeitorId(null)}
           onFimDoLivro={fimDoLivro}
+          onLivroAnterior={() => irParaLivro(-1, false)}
+          comecarNoFim={leitorNoFim}
         />
       )}
 
@@ -427,6 +500,12 @@ function BookGrid({
             }}
           >
             Adicionar tag em {quantidade} {quantidade === 1 ? "livro" : "livros"}
+          </button>
+          <button
+            className="w-full rounded px-3 py-2 text-left text-red-400 hover:bg-botao"
+            onClick={excluirSelecionados}
+          >
+            Excluir {quantidade === 1 ? "livro" : `${quantidade} livros`}
           </button>
         </div>
       )}

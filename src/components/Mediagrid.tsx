@@ -10,12 +10,15 @@ const NUM_COLUNAS = 4;
 
 type MediagridProps = {
     medias: Media[];
+    todasMedias: Media[];
+    
     onSelectMedia: (media: Media | null) => void;
     selectedMedia: Media | null;
     onAddTag: (mediaId: string, nomeTag: string) => void;
     onAddTagToMany: (mediaIds: string[], nomeTag: string) => void;
     onRemoveTag: (mediaId: string, tagId: string) => void;
-    onDeleteMedia: (media: Media) => void;
+    onDeleteMedias: (medias: Media[]) => void;
+    onSetPrevious: (mediaId: string, anteriorId: string | null) => void;
     onDeleteTag: (tagId: string) => void;
     onChangeAutoTags: (tagId: string, ids: string[]) => void | Promise<void>;
     onCustomizeTag: (
@@ -31,6 +34,7 @@ type MediagridProps = {
     allTags: tags[];
     onCreateCategory: (nome: string) => Promise<tags | null>;
     onRenameMedia: (mediaId: string, novoNome: string) => void;
+    onDurationKnown: (mediaId: string, segundos: number) => void;
 };
 
 function Mediagrid({
@@ -41,24 +45,43 @@ function Mediagrid({
     onAddTag,
     onAddTagToMany,
     onRemoveTag,
-    onDeleteMedia,
+    onDeleteMedias,
+    todasMedias,
+    onSetPrevious,
     onDeleteTag,
     onCustomizeTag,
     onCreateCategory,
     onChangeAutoTags,
+    onDurationKnown,
     onRenameMedia,
 }: MediagridProps) {
-    const [menu, setMenu] = useState<{
-        media: Media;
-        x: number;
-        y: number;
-    } | null>(null);
+    const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const [visualizando, setVisualizando] = useState(false);
     const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
     const [marcandoTag, setMarcandoTag] = useState(false);
     const ancoraRef = useRef<string | null>(null);
+    
 
     const multiplas = selecionadas.size > 1;
+
+    const alvos = medias.filter((m) => selecionadas.has(m.id));
+    const quantidade = alvos.length;
+
+    useEffect(() => {
+        setSelecionadas((atuais) => {
+            const validos = new Set(medias.map((m) => m.id));
+            const novas = new Set([...atuais].filter((id) => validos.has(id)));
+            return novas.size === atuais.size ? atuais : novas;
+        });
+    }, [medias]);
+
+    function excluirSelecionadas() {
+        const lista = alvos.length > 0 ? alvos : selectedMedia ? [selectedMedia] : [];
+
+        setMenu(null);
+
+        if (lista.length > 0) onDeleteMedias(lista);
+    }
 
     useEffect(() => {
         if (!selectedMedia) {
@@ -111,15 +134,13 @@ function Mediagrid({
                 return;
             }
 
-            if (e.key !== "Delete" || !selectedMedia) return;
-            if (visualizando) return;
-            if (selecionadas.size > 1) return; // evita excluir só uma de várias
+            if (e.key !== "Delete") return;
+            if (visualizando || emCampo) return;
+            if (!selectedMedia && selecionadas.size === 0) return;
             if (document.querySelector("[data-painel-filtros]")) return;
-            if (emCampo) return;
 
             e.preventDefault();
-            setMenu(null);
-            onDeleteMedia(selectedMedia);
+            excluirSelecionadas();
         }
 
         window.addEventListener("click", fecharMenu);
@@ -130,7 +151,7 @@ function Mediagrid({
             window.removeEventListener("keydown", handleKeyDown);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedMedia, onDeleteMedia, menu, visualizando, selecionadas]);
+    }, [selectedMedia, medias, onDeleteMedias, menu, visualizando, selecionadas]);
 
     function clicarMedia(media: Media, e: React.MouseEvent) {
         setMenu(null);
@@ -184,7 +205,24 @@ function Mediagrid({
     }
 
     function abrirMenu(media: Media, x: number, y: number) {
-        setMenu({ media, x, y });
+        if (!selecionadas.has(media.id)) {
+            setSelecionadas(new Set([media.id]));
+            ancoraRef.current = media.id;
+            onSelectMedia(media);
+        }
+
+        setMenu({ x, y });
+    }
+
+    function abrirRelacionada(id: string) {
+        const alvo = todasMedias.find((m) => m.id === id);
+
+        if (!alvo) return;
+
+        setMenu(null);
+        setSelecionadas(new Set([id]));
+        ancoraRef.current = id;
+        onSelectMedia(alvo);
     }
 
     const posicao = selectedMedia
@@ -205,8 +243,6 @@ function Mediagrid({
             onSelectMedia(destino);
         }
     }
-
-    const menuMultiplo = !!menu && multiplas && selecionadas.has(menu.media.id);
 
     return (
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -265,42 +301,40 @@ function Mediagrid({
                 onCreateCategory={onCreateCategory}
                 onRenameMedia={onRenameMedia}
                 onChangeAutoTags={onChangeAutoTags}
+                todasMedias={todasMedias}
+                onSetPrevious={onSetPrevious}
+                onOpenRelated={abrirRelacionada}
+                onDurationKnown={onDurationKnown}
             />
 
             {menu && (
                 <div
-                    className="fixed z-50 min-w-40 rounded-md bg-fundo p-1 shadow-lg"
+                    className="fixed z-50 min-w-48 rounded-md bg-base p-1 shadow-lg"
                     style={{ left: menu.x, top: menu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    {menuMultiplo ? (
-                        <button
-                            className="w-full rounded text-white px-3 py-2 text-left hover:bg-botao"
-                            onClick={() => {
-                                setMenu(null);
-                                setMarcandoTag(true);
-                            }}
-                        >
-                            Adicionar tag em {selecionadas.size} mídias
-                        </button>
-                    ) : (
-                        <button
-                            className="w-full rounded px-3 py-2 text-left text-red-400 hover:bg-botao"
-                            onClick={() => {
-                                const media = menu.media;
-                                setMenu(null);
-                                onDeleteMedia(media);
-                            }}
-                        >
-                            Excluir mídia
-                        </button>
-                    )}
+                    <button
+                        className="w-full rounded px-3 py-2 text-left text-white hover:bg-botao"
+                        onClick={() => {
+                            setMenu(null);
+                            setMarcandoTag(true);
+                        }}
+                    >
+                        Adicionar tag em {quantidade} {quantidade === 1 ? "mídia" : "mídias"}
+                    </button>
+
+                    <button
+                        className="w-full rounded px-3 py-2 text-left text-red-400 hover:bg-botao"
+                        onClick={excluirSelecionadas}
+                    >
+                        Excluir {quantidade === 1 ? "mídia" : `${quantidade} mídias`}
+                    </button>
                 </div>
             )}
 
             {marcandoTag && (
                 <BatchTagModal
-                    quantidade={selecionadas.size}
+                    quantidade={quantidade}
                     allTags={allTags}
                     onClose={() => setMarcandoTag(false)}
                     onConfirm={(nome) => {

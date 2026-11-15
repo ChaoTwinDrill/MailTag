@@ -14,6 +14,8 @@ export interface Media {
     height: number | null;
     tags: tags[];
     extension: string | undefined;
+    previousMediaId?: string | null;
     thumbnailR2Key: string | null;
     thumbnailSrc: string;
+    durationSeconds?: number | null;
 }

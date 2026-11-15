@@ -21,7 +21,7 @@ import Mediagrid from "./components/Mediagrid.tsx";
 import TagManager from "./components/TagManager.tsx";
 import BookGrid from "./components/BookGrid.tsx";
 import type { Book, ModoApp } from "./components/types/book.ts";
-
+import { estaNaCadeia } from "./lib/sequencia";
 
 import { supabase } from "./lib/supabase";
 import { LIBRARY_ID } from "./lib/library";
@@ -41,6 +41,7 @@ import {
 
 
 import "./global.css";
+import ImportProgress from "./components/ImportProgress.tsx";
 
   const WORKER_URL = "https://mailtag-api.oririkkj.workers.dev";
   
@@ -67,6 +68,7 @@ type Linha = Record<string, any>;
 
       function converterMedia(media: Linha): Media {
         return {
+          previousMediaId: media.previous_media_id ?? null,
           id: media.id,
           libraryId: media.library_id,
           name: media.name,
@@ -81,8 +83,10 @@ type Linha = Record<string, any>;
           extension: media.name.split(".").pop()?.toLowerCase(),
           thumbnailR2Key: media.thumbnail_r2_key,
           thumbnailSrc: "",
-          tags: [],
+          tags: [],         
+          durationSeconds: media.duration_seconds ?? null,
         };
+        
       }
 
   async function buscarTodos<T>(
@@ -133,12 +137,10 @@ async function carregarLivros(): Promise<Book[]> {
     ),
     buscarTodos((de, ate) =>
       supabase
-        .from("medias")
-        .select("id, book_id")
+        .from("book_page_counts")
+        .select("book_id, pages")
         .eq("library_id", LIBRARY_ID)
-        .eq("book_role", "page")
-        .is("deleted_at", null)
-        .order("id")
+        .order("book_id")
         .range(de, ate)
     ),
   ]);
@@ -176,9 +178,9 @@ async function carregarLivros(): Promise<Book[]> {
 
   const paginasPorLivro = new Map<string, number>();
 
-  for (const p of paginas) {
-    paginasPorLivro.set(p.book_id, (paginasPorLivro.get(p.book_id) ?? 0) + 1);
-  }
+      for (const p of paginas) {
+        paginasPorLivro.set(p.book_id, p.pages);
+      }
 
   return livros.map((l) => ({
     id: l.id,
@@ -195,6 +197,7 @@ async function carregarLivros(): Promise<Book[]> {
     tagIds: tagIdsPorLivro.get(l.id) ?? [],
     createdAt: new Date(l.created_at),
     modifiedAt: new Date(l.updated_at),
+    previousBookId: l.previous_book_id ?? null,
   }));
 }
 
@@ -346,68 +349,240 @@ const categoriaPadrao =
       }, []);
 
           // Excluir mídia
-    async function removerMedia(media: Media) {
-        const { data, error } = await supabase.auth.getSession();
+    async function removerMedias(lista: Media[]) {
+      if (lista.length === 0) return;
 
-        if (error || !data.session) {
-          alert("Usuário não autenticado.");
-          return;
-        }
+      if (
+        lista.length > 1 &&
+        !window.confirm(
+          `Excluir ${lista.length} mídias?\n\nOs arquivos também serão apagados da nuvem. Isso não pode ser desfeito.`
+        )
+      ) {
+        return;
+      }
 
-        const token = data.session.access_token;
+      const { data, error } = await supabase.auth.getSession();
 
-        //  Banco de dados
+      if (error || !data.session) {
+        alert("Usuário não autenticado.");
+        return;
+      }
+
+      const token = data.session.access_token;
+      const apagadas: Media[] = [];
+      let falhouNoBanco = false;
+
+      for (let i = 0; i < lista.length; i += 50) {
+        const parte = lista.slice(i, i + 50);
+        const ids = parte.map((m) => m.id);
+
         try {
           const { error: erroTags } = await supabase
             .from("media_tags")
             .delete()
             .eq("library_id", LIBRARY_ID)
-            .eq("media_id", media.id);
+            .in("media_id", ids);
 
           if (erroTags) throw erroTags;
 
-          const { error: erroMedia } = await supabase
+          const { error: erroMedias } = await supabase
             .from("medias")
             .delete()
             .eq("library_id", LIBRARY_ID)
-            .eq("id", media.id);
+            .in("id", ids);
 
-          if (erroMedia) throw erroMedia;
+          if (erroMedias) throw erroMedias;
+
+          apagadas.push(...parte);
         } catch (erro) {
-          console.error("Erro ao excluir mídia:", erro);
-          alert("Não foi possível excluir a mídia. Verifique o console.");
-          return;
-        }
-
-        setMedias((atuais) => atuais.filter((m) => m.id !== media.id));
-        setSelectedMedia((atual) => (atual?.id === media.id ? null : atual));
-        await removerDoCache([media.r2Key, media.thumbnailR2Key]);
-
-        try {
-          const resposta = await fetch(WORKER_URL, {
-            method: "DELETE",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "X-Library-Id": LIBRARY_ID,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              key: media.r2Key,
-              thumbnailKey: media.thumbnailR2Key,
-            }),
-          });
-
-          if (!resposta.ok) {
-            const resultado = await resposta.json().catch(() => ({}));
-            throw new Error(resultado.error || `Status ${resposta.status}`);
-          }
-        } catch (erro) {
-          console.error("Mídia excluída, mas os arquivos ficaram no R2:", media.r2Key, erro);
-          alert("A mídia foi excluída, mas os arquivos na nuvem não puderam ser removidos.");
+          console.error("Erro ao excluir mídias:", erro);
+          falhouNoBanco = true;
+          break;
         }
       }
 
-      async function renomearMedia(mediaId: string, novoNome: string) {
+      if (apagadas.length > 0) {
+        const removidas = new Set(apagadas.map((m) => m.id));
+
+        setMedias((atuais) => atuais.filter((m) => !removidas.has(m.id)));
+        setSelectedMedia((atual) =>
+          atual && removidas.has(atual.id) ? null : atual
+        );
+
+        await removerDoCache(apagadas.flatMap((m) => [m.r2Key, m.thumbnailR2Key]));
+      }
+
+      if (falhouNoBanco) {
+        alert(
+          apagadas.length > 0
+            ? `Só ${apagadas.length} de ${lista.length} mídias foram excluídas. Verifique o console.`
+            : "Não foi possível excluir as mídias. Verifique o console."
+        );
+      }
+
+      // Arquivos na nuvem: 5 por vez
+      let falhas = 0;
+      let indice = 0;
+
+      async function trabalhador() {
+        while (indice < apagadas.length) {
+          const media = apagadas[indice++];
+
+          try {
+            const resposta = await fetch(WORKER_URL, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "X-Library-Id": LIBRARY_ID,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                key: media.r2Key,
+                thumbnailKey: media.thumbnailR2Key,
+              }),
+            });
+
+            if (!resposta.ok) throw new Error(`Status ${resposta.status}`);
+          } catch (erro) {
+            falhas++;
+            console.error("Arquivo ficou no R2:", media.r2Key, erro);
+          }
+        }
+      }
+
+      await Promise.all(
+        Array.from({ length: Math.min(5, apagadas.length) }, trabalhador)
+      );
+
+      if (falhas > 0) {
+        alert(
+          `As mídias foram excluídas, mas ${falhas} arquivo(s) não puderam ser removidos da nuvem.`
+        );
+      }
+    }
+
+      async function removerLivros(lista: Book[]) {
+  if (lista.length === 0) return;
+
+  const paginas = lista.reduce((soma, l) => soma + l.pageCount, 0);
+  const rotuloPaginas = `${paginas} ${paginas === 1 ? "página" : "páginas"}`;
+
+  const pergunta =
+    lista.length === 1
+      ? `Excluir o livro "${lista[0].name}" com ${rotuloPaginas}?`
+      : `Excluir ${lista.length} livros com ${rotuloPaginas} no total?`;
+
+  const confirmado = window.confirm(
+    `${pergunta}\n\nAs imagens deles também serão apagadas da nuvem. Isso não pode ser desfeito.`
+  );
+
+  if (!confirmado) return;
+
+  const { data: sessao, error: erroSessao } = await supabase.auth.getSession();
+
+  if (erroSessao || !sessao.session) {
+    alert("Usuário não autenticado.");
+    return;
+  }
+
+  const token = sessao.session.access_token;
+  const ids = lista.map((l) => l.id);
+  const arquivos: { r2_key: string; thumbnail_r2_key: string | null }[] = [];
+
+  try {
+    // Todas as mídias dos livros (páginas e capa), para limpar os arquivos depois
+    for (let i = 0; i < ids.length; i += 50) {
+      const parte = await buscarTodos((de, ate) =>
+        supabase
+          .from("medias")
+          .select("id, r2_key, thumbnail_r2_key")
+          .eq("library_id", LIBRARY_ID)
+          .in("book_id", ids.slice(i, i + 50))
+          .order("id")
+          .range(de, ate)
+      );
+
+      arquivos.push(...parte);
+    }
+
+    // Livros e mídias apontam um para o outro (capa): solta a capa primeiro
+    const { error: erroCapa } = await supabase
+      .from("books")
+      .update({ cover_media_id: null })
+      .eq("library_id", LIBRARY_ID)
+      .in("id", ids);
+
+    if (erroCapa) throw erroCapa;
+
+    const { error: erroPaginas } = await supabase
+      .from("medias")
+      .delete()
+      .eq("library_id", LIBRARY_ID)
+      .in("book_id", ids);
+
+    if (erroPaginas) throw erroPaginas;
+
+    const { error: erroLivros } = await supabase
+      .from("books")
+      .delete()
+      .eq("library_id", LIBRARY_ID)
+      .in("id", ids);
+
+    if (erroLivros) throw erroLivros;
+  } catch (erro) {
+    console.error("Erro ao excluir livros:", erro);
+    alert("Não foi possível excluir os livros. Verifique o console.");
+    setVersaoLivros((n) => n + 1); // resincroniza com o que ficou no banco
+    return;
+  }
+
+  const removidos = new Set(ids);
+  setLivros((atuais) => atuais.filter((l) => !removidos.has(l.id)));
+
+  await removerDoCache(arquivos.flatMap((a) => [a.r2_key, a.thumbnail_r2_key]));
+
+  // Arquivos na nuvem: 5 por vez, e se algum falhar só avisa no final
+  let falhas = 0;
+  let indice = 0;
+
+  async function trabalhador() {
+    while (indice < arquivos.length) {
+      const arquivo = arquivos[indice++];
+
+      try {
+        const resposta = await fetch(WORKER_URL, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "X-Library-Id": LIBRARY_ID,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            key: arquivo.r2_key,
+            thumbnailKey: arquivo.thumbnail_r2_key,
+          }),
+        });
+
+        if (!resposta.ok) throw new Error(`Status ${resposta.status}`);
+      } catch (erro) {
+        falhas++;
+        console.error("Arquivo ficou no R2:", arquivo.r2_key, erro);
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(5, arquivos.length) }, trabalhador)
+  );
+
+  if (falhas > 0) {
+    alert(
+      `Os livros foram excluídos, mas ${falhas} arquivo(s) não puderam ser removidos da nuvem.`
+    );
+  }
+}
+
+async function renomearMedia(mediaId: string, novoNome: string) {
   const nome = novoNome.trim();
 
   if (!nome) return;
@@ -432,6 +607,88 @@ const categoriaPadrao =
     atual?.id === mediaId ? { ...atual, name: nome } : atual
   );
 }
+
+// Vídeos antigos não têm duração salva: ela é preenchida ao abrir o vídeo
+async function registrarDuracao(mediaId: string, segundos: number) {
+  const duracao = Math.round(segundos * 100) / 100;
+
+  const { error } = await supabase
+    .from("medias")
+    .update({ duration_seconds: duracao })
+    .eq("library_id", LIBRARY_ID)
+    .eq("id", mediaId);
+
+  if (error) {
+    console.error("Erro ao salvar duração:", error);
+    return;
+  }
+
+  const aplicar = (m: Media): Media =>
+    m.id === mediaId ? { ...m, durationSeconds: duracao } : m;
+
+  setMedias((atuais) => atuais.map(aplicar));
+  setSelectedMedia((atual) => (atual ? aplicar(atual) : atual));
+}
+
+async function definirMidiaAnterior(midiaId: string, anteriorId: string | null) {
+  if (anteriorId) {
+    const porId = new Map(medias.map((m) => [m.id, m]));
+    const anteriorDe = (id: string) => porId.get(id)?.previousMediaId ?? null;
+
+    if (anteriorId === midiaId || estaNaCadeia(anteriorId, midiaId, anteriorDe)) {
+      alert("Isso criaria um ciclo na sequência.");
+      return;
+    }
+  }
+
+  const { error } = await supabase
+        .from("medias")
+        .update({ previous_media_id: anteriorId })
+        .eq("library_id", LIBRARY_ID)
+        .eq("id", midiaId);
+
+      if (error) {
+        console.error("Erro ao salvar sequência:", error);
+        alert("Não foi possível salvar a sequência.");
+        return;
+      }
+
+      const aplicar = (m: Media): Media =>
+        m.id === midiaId ? { ...m, previousMediaId: anteriorId } : m;
+
+      setMedias((atuais) => atuais.map(aplicar));
+      setSelectedMedia((atual) => (atual ? aplicar(atual) : atual));
+    }
+
+    async function definirLivroAnterior(livroId: string, anteriorId: string | null) {
+      if (anteriorId) {
+        const porId = new Map(livros.map((l) => [l.id, l]));
+        const anteriorDe = (id: string) => porId.get(id)?.previousBookId ?? null;
+
+        if (anteriorId === livroId || estaNaCadeia(anteriorId, livroId, anteriorDe)) {
+          alert("Isso criaria um ciclo na sequência.");
+          return;
+        }
+      }
+
+      const { error } = await supabase
+        .from("books")
+        .update({ previous_book_id: anteriorId })
+        .eq("library_id", LIBRARY_ID)
+        .eq("id", livroId);
+
+      if (error) {
+        console.error("Erro ao salvar sequência:", error);
+        alert("Não foi possível salvar a sequência.");
+        return;
+      }
+
+      setLivros((atuais) =>
+        atuais.map((l) =>
+          l.id === livroId ? { ...l, previousBookId: anteriorId } : l
+        )
+      );
+    }
 
   // Carregar galeria, mídias e tags
  useEffect(() => {
@@ -469,7 +726,6 @@ const categoriaPadrao =
                   .eq("library_id", LIBRARY_ID)
                   .is("deleted_at", null)
                   .order("created_at", { ascending: false })
-                  .is("deleted_at", null)
                   .is("book_id", null)
                   .order("id") // desempate para a paginação ficar estável
                   .range(de, ate)
@@ -511,23 +767,10 @@ const categoriaPadrao =
               else tagsPorMidia.set(associacao.media_id, [tag]);
             }
 
-            const midiasConvertidas: Media[] = midias.map((media) => ({
-              id: media.id,
-              libraryId: media.library_id,
-              name: media.name,
-              src: "",
-              r2Key: media.r2_key,
-              mimeType: media.mime_type,
-              size: Number(media.size_bytes),
-              createdAt: media.file_created_at ? new Date(media.file_created_at) : null,
-              modifiedAt: media.file_modified_at ? new Date(media.file_modified_at) : null,
-              width: media.width,
-              height: media.height,
-              extension: media.name.split(".").pop()?.toLowerCase(),
-              thumbnailR2Key: media.thumbnail_r2_key,
-              thumbnailSrc: "",
-              tags: tagsPorMidia.get(media.id) ?? [],
-            }));
+           const midiasConvertidas: Media[] = midias.map((media) => ({
+            ...converterMedia(media),
+            tags: tagsPorMidia.get(media.id) ?? [],
+          }));
 
             setTodasTags(tagsConvertidas);
             setMedias(midiasConvertidas);
@@ -635,9 +878,11 @@ const categoriaPadrao =
                 ...m,
                 name: linha.name,
                 extension: linha.name.split(".").pop()?.toLowerCase(),
+                previousMediaId: linha.previous_media_id ?? null,
+                durationSeconds: linha.duration_seconds ?? m.durationSeconds ?? null,
               }
             : m;
-
+              
         setMedias((atuais) => atuais.map(atualizar));
         setSelectedMedia((atual) => (atual ? atualizar(atual) : atual));
       }
@@ -1532,32 +1777,24 @@ useEffect(() => {
       }, [medias, filhasPorCategoria, buscaTagIds, filtros]);
 
       const livrosFiltrados = useMemo(() => {
-        const livrosPorTags =
-          buscaTagIds.length === 0
-            ? livros
-            : livros.filter((livro) => {
-                const corresponde = (tagId: string) =>
-                  livro.tagIds.some(
-                    (id) =>
-                      id === tagId ||
-                      filhasPorCategoria.get(tagId)?.has(id)
-                  );
+          const temTag = (livro: Book, tagId: string) =>
+            livro.tagIds.some(
+              (id) => id === tagId || filhasPorCategoria.get(tagId)?.has(id)
+            );
 
-                return filtros.modoTags === "todas"
-                  ? buscaTagIds.every(corresponde)
-                  : buscaTagIds.some(corresponde);
-              });
+          const porTags = livros.filter((livro) => {
+            if (filtrosLivros.tagsExcluidas.some((t) => temTag(livro, t))) return false;
+            if (buscaTagIds.length === 0) return true;
 
-        return filtrarLivros(livrosPorTags, filtrosLivros);
-      }, [
-        livros,
-        buscaTagIds,
-        filhasPorCategoria,
-        filtros.modoTags,
-        filtrosLivros,
-      ]);
-              
-        
+            return filtros.modoTags === "todas"
+              ? buscaTagIds.every((t) => temTag(livro, t))
+              : buscaTagIds.some((t) => temTag(livro, t));
+          });
+
+          return filtrarLivros(porTags, filtrosLivros);
+        }, [livros, buscaTagIds, filhasPorCategoria, filtros.modoTags, filtrosLivros]);
+                      
+                
         
    
    
@@ -1623,13 +1860,16 @@ useEffect(() => {
          onSelectMedia={selecionarMedia}
          onAddTag={adicionarTag}
          onRemoveTag={removerTag}
-         onDeleteMedia={removerMedia}
          onDeleteTag={excluirTag}
          onCustomizeTag={personalizarTag}
          onCreateCategory={criarTagCategoria}
          onRenameMedia={renomearMedia}
          onAddTagToMany={adicionarTagEmVarias}
          onChangeAutoTags={definirTagsAutomaticas}
+         todasMedias={medias}
+         onDeleteMedias={removerMedias}
+         onSetPrevious={definirMidiaAnterior}
+         onDurationKnown={registrarDuracao}
          />
       ) : (
         <BookGrid
@@ -1643,6 +1883,8 @@ useEffect(() => {
           onCreateCategory={criarTagCategoria}
           onChangeAutoTags={definirTagsAutomaticas}
           onAddTagToMany={adicionarTagAosLivros}
+          onDeleteBooks={removerLivros}
+          onSetPrevious={definirLivroAnterior}
         />
       )}
 
@@ -1673,7 +1915,7 @@ useEffect(() => {
         aberto={gerenciadorAberto}
         allTags={todasTags}
         medias={medias}
-        
+        livros={livros}
         onClose={() => setGerenciadorAberto(false)}
         onCustomizeTag={personalizarTag}
         onDeleteTag={excluirTag}
@@ -1701,7 +1943,7 @@ useEffect(() => {
         onClose={() => setCriandoLivro(false)}
         onCreated={() => setVersaoLivros((n) => n + 1)}
       />
-
+      <ImportProgress />
     </main>
   );
 }

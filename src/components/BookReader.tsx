@@ -6,10 +6,22 @@ import { supabase } from "../lib/supabase";
 import { LIBRARY_ID } from "../lib/library";
 import { obterArquivoCacheado } from "../lib/cache";
 
-type Props = { livro: Book; onClose: () => void; onFimDoLivro?: () => void };
+type Props = {
+  livro: Book;
+  onClose: () => void;
+  onFimDoLivro?: () => void;
+  onLivroAnterior?: () => void;
+  comecarNoFim?: boolean;
+};
 
 
-export default function BookReader({ livro, onClose, onFimDoLivro }: Props) {
+export default function BookReader({
+  livro,
+  onClose,
+  onFimDoLivro,
+  onLivroAnterior,
+  comecarNoFim,
+}: Props) {
   const [paginas, setPaginas] = useState<Media[]>([]);
   const [srcs, setSrcs] = useState<Record<string, string>>({});
   const [indice, setIndice] = useState(0);
@@ -36,25 +48,28 @@ export default function BookReader({ livro, onClose, onFimDoLivro }: Props) {
         console.error("Erro ao carregar páginas:", error);
         setErro(error.message);
       } else {
-        setPaginas(
-          (data ?? []).map((m): Media => ({
-            id: m.id,
-            libraryId: m.library_id,
-            name: m.name,
-            src: "",
-            r2Key: m.r2_key,
-            mimeType: m.mime_type,
-            size: Number(m.size_bytes),
-            createdAt: m.file_created_at ? new Date(m.file_created_at) : null,
-            modifiedAt: m.file_modified_at ? new Date(m.file_modified_at) : null,
-            width: m.width,
-            height: m.height,
-            extension: m.name.split(".").pop()?.toLowerCase(),
-            thumbnailR2Key: m.thumbnail_r2_key,
-            thumbnailSrc: "",
-            tags: [],
-          }))
-        );
+       const lista = (data ?? []).map((m): Media => ({
+        id: m.id,
+        libraryId: m.library_id,
+        name: m.name,
+        src: "",
+        r2Key: m.r2_key,
+        mimeType: m.mime_type,
+        size: Number(m.size_bytes),
+        createdAt: m.file_created_at ? new Date(m.file_created_at) : null,
+        modifiedAt: m.file_modified_at ? new Date(m.file_modified_at) : null,
+        width: m.width,
+        height: m.height,
+        extension: m.name.split(".").pop()?.toLowerCase(),
+        thumbnailR2Key: m.thumbnail_r2_key,
+        thumbnailSrc: "",
+        tags: [],
+      }));
+
+      setPaginas(lista);
+
+      // Voltando de outro livro: abre na última página
+      if (comecarNoFim && lista.length > 0) setIndice(lista.length - 1);
       }
 
       setCarregando(false);
@@ -86,15 +101,21 @@ export default function BookReader({ livro, onClose, onFimDoLivro }: Props) {
 
  const navegar = useCallback(
   (delta: number) => {
-    // Passou da última página: vai para o próximo livro
+    // Passou da última página: próximo livro
     if (delta > 0 && indice >= paginas.length - 1) {
       onFimDoLivro?.();
       return;
     }
 
+    // Antes da primeira página: livro anterior
+    if (delta < 0 && indice <= 0) {
+      onLivroAnterior?.();
+      return;
+    }
+
     setIndice((i) => Math.min(Math.max(i + delta, 0), paginas.length - 1));
   },
-  [indice, paginas.length, onFimDoLivro]
+  [indice, paginas.length, onFimDoLivro, onLivroAnterior]
 );
 
   const atual = paginas[indice];
@@ -107,7 +128,8 @@ export default function BookReader({ livro, onClose, onFimDoLivro }: Props) {
         total={paginas.length}
         onNavegar={navegar}
         onClose={onClose}
-        permitirAvancarNoFim
+        permitirAvancarNoFim 
+        permitirRecuarNoInicio={!!onLivroAnterior}
       />
     );
   }

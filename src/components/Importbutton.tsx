@@ -4,7 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { readFile, stat, size } from "@tauri-apps/plugin-fs";
 import { FaRegPlusSquare } from "react-icons/fa";
 import type { Media } from "./types/media";
-
+import {adicionarTarefas, definirDestinoImportacao, type TarefaImportacao,} from "../lib/importacao";
 import { LIBRARY_ID } from "../lib/library";
 import { supabase } from "../lib/supabase";
 import { copiarArquivoParaCache, salvarArquivoNoCache } from "../lib/cache";
@@ -33,6 +33,58 @@ const tiposMime: Record<string, string> = {
   mov: "video/quicktime",
   mkv: "video/x-matroska",
 };
+
+let sequencia = 0;
+
+async function tokenAtual(): Promise<string | null> {
+     const { data, error } = await supabase.auth.getSession();
+     return error || !data.session ? null : data.session.access_token;
+   }
+
+    async function calcularHash(blob: Blob): Promise<string> {
+      const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+
+      return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+
+    // Hashes que estão sendo enviados agora: pega repetidos dentro do mesmo lote
+    const hashesEmAndamento = new Set<string>();
+
+    // Retorna a mídia igual, se existir. Se não existir, deixa o hash reservado.
+    async function reservarHash(
+      hash: string
+    ): Promise<{ id: string; nome: string } | null> {
+      if (hashesEmAndamento.has(hash)) {
+        return { id: "", nome: "outro arquivo desta importação" };
+      }
+
+      hashesEmAndamento.add(hash);
+
+      const { data, error } = await supabase
+        .from("medias")
+        .select("id, name")
+        .eq("library_id", LIBRARY_ID)
+        .eq("content_hash", hash)
+        .is("book_id", null)
+        .is("deleted_at", null)
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        // Na dúvida, importa
+        console.warn("Não foi possível verificar duplicadas:", error);
+        return null;
+      }
+
+      if (data) {
+        hashesEmAndamento.delete(hash);
+        return { id: data.id, nome: data.name };
+      }
+
+      return null;
+    }
 
 function criarBlob(conteudo: Uint8Array, mimeType: string) {
   const buffer = conteudo.buffer.slice(
@@ -142,6 +194,7 @@ async function gerarMiniaturaVideo(src: string): Promise<{
   blob: Blob;
   width: number;
   height: number;
+  duracao: number | null;
 }> {
   const video = document.createElement("video");
 
@@ -165,7 +218,7 @@ async function gerarMiniaturaVideo(src: string): Promise<{
     if (!width || !height) {
       throw new Error("Não foi possível ler a resolução do vídeo.");
     }
-
+    const duracao = Number.isFinite(video.duration) ? video.duration : null;
     const tempo = Number.isFinite(video.duration)
       ? Math.min(0.5, video.duration / 2)
       : 0;
@@ -209,26 +262,24 @@ async function gerarMiniaturaVideo(src: string): Promise<{
 
     const blob = await canvasParaWebp(canvas);
 
-    return { blob, width, height };
+    return { blob, width, height, duracao };
   } finally {
     video.removeAttribute("src");
     video.load();
   }
 }
 
-// Quantos arquivos são importados ao mesmo tempo
-const LIMITE_SIMULTANEO = 3;
 
-// O Worker aceita no máximo ~100 MB por requisição (planos Free e Pro).
-// Deixamos uma folga para a miniatura. Aumente se o seu plano permitir.
 const LIMITE_UPLOAD_BYTES = 95 * 1024 * 1024;
 
 export type ResultadoImportacao =
   | { midia: Media }
-  | { nome: string; erro: string };
+  | {
+      nome: string;
+      erro: string;
+      duplicadaDe?: { id: string; nome: string };
+    };
 
-// Lê o arquivo como Blob pelo protocolo de assets, sem copiar o conteúdo
-// para a memória do JavaScript. Se falhar, usa readFile como plano B.
 async function lerArquivoComoBlob(
   caminho: string,
   src: string,
@@ -282,13 +333,13 @@ export async function importarArquivo(
   arquivo: string,
   rotulo: string,
   token: string,
-  livro?: DadosLivro
+  livro?: DadosLivro,
+  opcoes?: { ignorarDuplicata?: boolean }
 ): Promise<ResultadoImportacao> {
-  // Cada arquivo tem seus próprios timers, para não colidirem
-  // quando vários são importados ao mesmo tempo.
   const etapa = (descricao: string) => `${rotulo} · ${descricao}`;
 
   const nome = arquivo.split(/[\\/]/).pop() ?? "Imagem";
+  let hashReservado: string | null = null;
 
   console.time(etapa("Importação total"));
 
@@ -304,6 +355,7 @@ export async function importarArquivo(
       size(arquivo),
       stat(arquivo),
     ]);
+
     if (tamanho > LIMITE_UPLOAD_BYTES) {
       throw new Error(
         `Arquivo maior que o limite de upload (${Math.round(
@@ -318,8 +370,27 @@ export async function importarArquivo(
     const originalBlob = await lerArquivoComoBlob(arquivo, src, mimeType);
     console.timeEnd(etapa("Leitura do arquivo"));
 
+    // Identificador do conteúdo, para achar duplicadas
+    const hash = await calcularHash(originalBlob);
+
+    // Páginas de livros não entram na checagem
+    if (!livro && !opcoes?.ignorarDuplicata) {
+      const duplicada = await reservarHash(hash);
+
+      if (duplicada) {
+        return {
+          nome,
+          erro: `Já existe na galeria: ${duplicada.nome}`,
+          duplicadaDe: duplicada,
+        };
+      }
+
+      hashReservado = hash;
+    }
+
     let width: number | null = null;
     let height: number | null = null;
+    let duracao: number | null = null;
     let miniaturaBlob: Blob;
 
     console.time(etapa("Criação da miniatura"));
@@ -331,35 +402,35 @@ export async function importarArquivo(
       height = miniatura.height;
       miniaturaBlob = miniatura.blob;
     } else {
-      const miniatura = await gerarMiniaturaVideo(src);
+      // O vídeo precisa vir de um blob (mesma origem), senão o canvas
+      // fica "contaminado" e não pode ser exportado
+      const urlBlob = URL.createObjectURL(originalBlob);
 
-      width = miniatura.width;
-      height = miniatura.height;
-      miniaturaBlob = miniatura.blob;
+      try {
+        const miniatura = await gerarMiniaturaVideo(urlBlob);
+
+        width = miniatura.width;
+        height = miniatura.height;
+        duracao = miniatura.duracao;
+        miniaturaBlob = miniatura.blob;
+      } finally {
+        URL.revokeObjectURL(urlBlob);
+      }
     }
 
     console.timeEnd(etapa("Criação da miniatura"));
 
-    // Preparar os dois arquivos
     const dados = new FormData();
 
-    dados.append(
-      "original",
-      new File([originalBlob], nome, { type: mimeType })
-    );
-
+    dados.append("original", new File([originalBlob], nome, { type: mimeType }));
     dados.append(
       "thumbnail",
-      new File([miniaturaBlob], "thumbnail.webp", {
-        type: "image/webp",
-      })
+      new File([miniaturaBlob], "thumbnail.webp", { type: "image/webp" })
     );
-
     dados.append("fileName", nome);
 
     console.time(etapa("Upload R2"));
 
-    // Enviar original e miniatura ao Worker
     const resposta = await fetch(WORKER_URL, {
       method: "POST",
       headers: {
@@ -390,44 +461,33 @@ export async function importarArquivo(
 
     console.time(etapa("Banco Supabase"));
 
-    // Salvar os caminhos no Supabase
-    const { error: erroBanco } = await supabase
-      .from("medias")
-      .insert({
-        id,
-        library_id: LIBRARY_ID,
-        name: nome,
-        r2_key: resultado.key,
-        thumbnail_r2_key: resultado.thumbnailKey,
-        mime_type: mimeType,
-        size_bytes: tamanho,
-        width,
-        height,
-        file_created_at: criadaEm.toISOString(),
-        file_modified_at: modificadaEm.toISOString(),
-        ...(livro ?? {}),
-      });
+    const { error: erroBanco } = await supabase.from("medias").insert({
+      id,
+      library_id: LIBRARY_ID,
+      name: nome,
+      r2_key: resultado.key,
+      thumbnail_r2_key: resultado.thumbnailKey,
+      mime_type: mimeType,
+      size_bytes: tamanho,
+      width,
+      height,
+      content_hash: hash,
+      duration_seconds: duracao,
+      file_created_at: criadaEm.toISOString(),
+      file_modified_at: modificadaEm.toISOString(),
+      ...(livro ?? {}),
+    });
 
     console.timeEnd(etapa("Banco Supabase"));
 
     if (erroBanco) {
       console.error("Erro ao salvar mídia:", erroBanco);
 
-      // Evita deixar arquivos órfãos no R2
-      await removerArquivosDoR2(
-        token,
-        resultado.key,
-        resultado.thumbnailKey
-      );
+      await removerArquivosDoR2(token, resultado.key, resultado.thumbnailKey);
 
-      throw new Error(
-        "Arquivos enviados, mas não foram registrados no banco."
-      );
+      throw new Error("Arquivos enviados, mas não foram registrados no banco.");
     }
 
-    // Guarda a miniatura e o original no cache persistente: assim não
-    // são baixados do R2 na próxima vez, e o original continua
-    // disponível mesmo que o arquivo seja movido ou apagado do disco.
     let thumbnailSrc: string;
 
     try {
@@ -463,6 +523,7 @@ export async function importarArquivo(
       modifiedAt: modificadaEm,
       width,
       height,
+      durationSeconds: duracao,
       tags: [],
     };
 
@@ -475,15 +536,19 @@ export async function importarArquivo(
       erro: erro instanceof Error ? erro.message : String(erro),
     };
   } finally {
+    if (hashReservado) hashesEmAndamento.delete(hashReservado);
+
     console.timeEnd(etapa("Importação total"));
   }
 }
 
 async function importarArquivoColado(
   arquivo: File,
-  token: string
+  token: string,
+  ignorarDuplicata = false
 ): Promise<ResultadoImportacao> {
   let nome = arquivo.name || "colada";
+  let hashReservado: string | null = null;
 
   try {
     const mimeType = arquivo.type;
@@ -513,10 +578,31 @@ async function importarArquivoColado(
       );
     }
 
-    let miniatura: { blob: Blob; width: number; height: number };
+    const hash = await calcularHash(arquivo);
+
+    if (!ignorarDuplicata) {
+      const duplicada = await reservarHash(hash);
+
+      if (duplicada) {
+        return {
+          nome,
+          erro: `Já existe na galeria: ${duplicada.nome}`,
+          duplicadaDe: duplicada,
+        };
+      }
+
+      hashReservado = hash;
+    }
+
+    let miniatura: {
+      blob: Blob;
+      width: number;
+      height: number;
+      duracao: number | null;
+    };
 
     if (mimeType.startsWith("image/")) {
-      miniatura = await gerarMiniaturaImagem(arquivo);
+      miniatura = { ...(await gerarMiniaturaImagem(arquivo)), duracao: null };
     } else {
       const url = URL.createObjectURL(arquivo);
 
@@ -563,6 +649,8 @@ async function importarArquivoColado(
       size_bytes: tamanho,
       width: miniatura.width,
       height: miniatura.height,
+      content_hash: hash,
+      duration_seconds: miniatura.duracao,
       file_created_at: agora.toISOString(),
       file_modified_at: agora.toISOString(),
     });
@@ -612,6 +700,7 @@ async function importarArquivoColado(
       modifiedAt: agora,
       width: miniatura.width,
       height: miniatura.height,
+      durationSeconds: miniatura.duracao,
       tags: [],
     };
 
@@ -623,10 +712,17 @@ async function importarArquivoColado(
       nome,
       erro: erro instanceof Error ? erro.message : String(erro),
     };
+  } finally {
+    if (hashReservado) hashesEmAndamento.delete(hashReservado);
   }
 }
 
 function ImportButton({ onImport }: ImportButtonProps) {
+  // Para onde vão as mídias que terminam de ser importadas
+  useEffect(() => {
+    definirDestinoImportacao(onImport);
+  }, [onImport]);
+
   async function ImportUwU() {
     const arquivos = await open({
       multiple: true,
@@ -652,116 +748,87 @@ function ImportButton({ onImport }: ImportButtonProps) {
 
     if (!arquivos) return;
 
-    const { data: sessaoData, error: erroSessao } =
-      await supabase.auth.getSession();
-
-    if (erroSessao || !sessaoData.session) {
+    if (!(await tokenAtual())) {
       alert("Você precisa estar logado para importar mídias.");
       return;
     }
 
-    const token = sessaoData.session.access_token;
+    adicionarTarefas(
+      arquivos.map((arquivo): TarefaImportacao => {
+        const nome = arquivo.split(/[\\/]/).pop() ?? arquivo;
 
-    // Importa até LIMITE_SIMULTANEO arquivos ao mesmo tempo,
-    // mantendo o resultado na ordem em que foram selecionados.
-    const resultados = await executarComLimite(
-      arquivos,
-      LIMITE_SIMULTANEO,
-      (arquivo, indice) =>
-        importarArquivo(
-          arquivo,
-          `[${indice + 1}/${arquivos.length}] ${
-            arquivo.split(/[\\/]/).pop() ?? arquivo
-          }`,
-          token
-        )
+        return {
+          nome,
+          executar: async (ignorarDuplicata: boolean) => {
+            // Sessão renovada a cada arquivo: filas longas não expiram
+            const token = await tokenAtual();
+
+            if (!token) {
+              return { nome, erro: "Você precisa estar logado para importar mídias." };
+            }
+
+            return importarArquivo(
+              arquivo,
+              `[${++sequencia}] ${nome}`,
+              token,
+              undefined,
+              { ignorarDuplicata }
+            );
+          },
+        };
+      })
     );
-
-    const novasMidias: Media[] = [];
-    const falhas: { nome: string; erro: string }[] = [];
-
-    for (const resultado of resultados) {
-      if ("midia" in resultado) novasMidias.push(resultado.midia);
-      else falhas.push(resultado);
-    }
-
-    if (novasMidias.length > 0) {
-      onImport(novasMidias);
-    }
-
-    if (falhas.length > 0) {
-      const detalhes = falhas
-        .slice(0, 5)
-        .map((falha) => `• ${falha.nome}: ${falha.erro}`)
-        .join("\n");
-
-      const restantes =
-        falhas.length > 5 ? `\n… e mais ${falhas.length - 5}.` : "";
-
-      alert(
-        `${novasMidias.length} de ${arquivos.length} arquivos importados.\n\n${detalhes}${restantes}`
-      );
-    }
   }
 
-    useEffect(() => {
-      async function aoColar(e: ClipboardEvent) {
-        // Não interfere ao colar texto em campos (tags, busca, etc.)
-        const alvo = e.target as HTMLElement;
+  useEffect(() => {
+    async function aoColar(e: ClipboardEvent) {
+      // Não interfere ao colar texto em campos (tags, busca, etc.)
+      const alvo = e.target as HTMLElement;
 
-        if (
-          alvo.isContentEditable ||
-          ["INPUT", "TEXTAREA", "SELECT"].includes(alvo.tagName)
-        ) {
-          return;
-        }
-
-        const arquivos = Array.from(e.clipboardData?.files ?? []).filter(
-          (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
-        );
-
-        if (arquivos.length === 0) return;
-
-        e.preventDefault();
-
-        const { data: sessaoData, error: erroSessao } =
-          await supabase.auth.getSession();
-
-        if (erroSessao || !sessaoData.session) {
-          alert("Você precisa estar logado para importar mídias.");
-          return;
-        }
-
-        const token = sessaoData.session.access_token;
-
-        const resultados = await executarComLimite(
-          arquivos,
-          LIMITE_SIMULTANEO,
-          (arquivo) => importarArquivoColado(arquivo, token)
-        );
-
-        const novasMidias: Media[] = [];
-        const falhas: { nome: string; erro: string }[] = [];
-
-        for (const resultado of resultados) {
-          if ("midia" in resultado) novasMidias.push(resultado.midia);
-          else falhas.push(resultado);
-        }
-
-        if (novasMidias.length > 0) onImport(novasMidias);
-
-        if (falhas.length > 0) {
-          alert(
-            `${novasMidias.length} de ${arquivos.length} importados.\n\n` +
-              falhas.map((f) => `• ${f.nome}: ${f.erro}`).join("\n")
-          );
-        }
+      if (
+        alvo.isContentEditable ||
+        ["INPUT", "TEXTAREA", "SELECT"].includes(alvo.tagName)
+      ) {
+        return;
       }
 
-      window.addEventListener("paste", aoColar);
+      const arquivos = Array.from(e.clipboardData?.files ?? []).filter(
+        (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
+      );
 
-      return () => window.removeEventListener("paste", aoColar);
-    }, [onImport]);
+      if (arquivos.length === 0) return;
+
+      e.preventDefault();
+
+      if (!(await tokenAtual())) {
+        alert("Você precisa estar logado para importar mídias.");
+        return;
+      }
+
+      adicionarTarefas(
+        arquivos.map((arquivo): TarefaImportacao => {
+          const nome = arquivo.name || "Imagem colada";
+
+          return {
+            nome,
+            executar: async (ignorarDuplicata: boolean) => {
+              const token = await tokenAtual();
+
+              if (!token) {
+                return { nome, erro: "Você precisa estar logado para importar mídias." };
+              }
+
+              return importarArquivoColado(arquivo, token, ignorarDuplicata);
+            },
+          };
+        })
+      );
+    }
+
+    window.addEventListener("paste", aoColar);
+
+    return () => window.removeEventListener("paste", aoColar);
+  }, []);
 
   return (
     <button
