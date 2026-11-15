@@ -5,13 +5,17 @@ import MediaInfo from "./MediaInfo";
 import type { tags } from "./types/tag";
 import MediaViewer from "./MediaViewer";
 import BatchTagModal from "./BatchTagModal";
+import type { PedidoAleatorio } from "../lib/aleatorio";
 
 const NUM_COLUNAS = 4;
 
 type MediagridProps = {
     medias: Media[];
     todasMedias: Media[];
-    
+    pedidoAleatorio: PedidoAleatorio | null;
+    onCopyTags: (mediaId: string) => void;
+    onPasteTags: (mediaIds: string[]) => void;
+    copiedTagCount: number;
     onSelectMedia: (media: Media | null) => void;
     selectedMedia: Media | null;
     onAddTag: (mediaId: string, nomeTag: string) => void;
@@ -54,13 +58,16 @@ function Mediagrid({
     onChangeAutoTags,
     onDurationKnown,
     onRenameMedia,
+    onCopyTags,
+    onPasteTags,
+    copiedTagCount,
+    pedidoAleatorio,
 }: MediagridProps) {
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const [visualizando, setVisualizando] = useState(false);
     const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
     const [marcandoTag, setMarcandoTag] = useState(false);
     const ancoraRef = useRef<string | null>(null);
-    
 
     const multiplas = selecionadas.size > 1;
 
@@ -90,6 +97,29 @@ function Mediagrid({
             ancoraRef.current = null;
         }
     }, [selectedMedia]);
+
+    const ultimoPedido = useRef(pedidoAleatorio?.n ?? 0);
+
+        useEffect(() => {
+        if (!pedidoAleatorio || pedidoAleatorio.n === ultimoPedido.current) return;
+
+        ultimoPedido.current = pedidoAleatorio.n;
+
+        const alvo = medias.find((m) => m.id === pedidoAleatorio.id);
+
+        if (!alvo) return;
+
+        setMenu(null);
+        setSelecionadas(new Set([alvo.id]));
+        ancoraRef.current = alvo.id;
+        onSelectMedia(alvo);
+
+        if (pedidoAleatorio.abrir) setVisualizando(true);
+
+        document
+            .querySelector(`[data-media-id="${alvo.id}"]`)
+            ?.scrollIntoView({ block: "center", behavior: "smooth" });
+        }, [pedidoAleatorio]);
 
     const colunas = useMemo(() => {
         const resultado: Media[][] = Array.from(
@@ -150,7 +180,6 @@ function Mediagrid({
             window.removeEventListener("click", fecharMenu);
             window.removeEventListener("keydown", handleKeyDown);
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedMedia, medias, onDeleteMedias, menu, visualizando, selecionadas]);
 
     function clicarMedia(media: Media, e: React.MouseEvent) {
@@ -165,7 +194,7 @@ function Mediagrid({
             const b = medias.findIndex((m) => m.id === media.id);
             const [ini, fim] = a < 0 ? [b, b] : [Math.min(a, b), Math.max(a, b)];
             const faixa = medias.slice(ini, fim + 1).map((m) => m.id);
-
+            
             setSelecionadas((atuais) =>
                 new Set(ctrl ? [...atuais, ...faixa] : faixa)
             );
@@ -329,6 +358,30 @@ function Mediagrid({
                     >
                         Excluir {quantidade === 1 ? "mídia" : `${quantidade} mídias`}
                     </button>
+                    {quantidade === 1 && (alvos[0]?.tags.length ?? 0) > 0 && (
+                    <button
+                        className="w-full rounded px-3 py-2 text-left text-white hover:bg-botao"
+                        onClick={() => {
+                        setMenu(null);
+                        onCopyTags(alvos[0].id);
+                        }}
+                    >
+                        Copiar tags
+                    </button>
+                    )}
+
+                    {copiedTagCount > 0 && (
+                    <button
+                        className="w-full rounded px-3 py-2 text-left text-white hover:bg-botao"
+                        onClick={() => {
+                        setMenu(null);
+                        onPasteTags(alvos.map((m) => m.id));
+                        }}
+                    >
+                        Colar {copiedTagCount} {copiedTagCount === 1 ? "tag" : "tags"}
+                        {quantidade > 1 ? ` em ${quantidade}` : ""}
+                    </button>
+                    )}
                 </div>
             )}
 

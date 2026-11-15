@@ -13,7 +13,6 @@ import {
   type FiltrosLivros,
 } from "./lib/bookFilters";
 import { useFilaLivros } from "./lib/fIlaLivros.ts";
-
 import { lerAvatar, salvarAvatar, removerAvatar } from "./lib/avatar";
 import Auth from "./components/Auth.tsx";
 import Header from "./components/Header.tsx";
@@ -22,13 +21,17 @@ import TagManager from "./components/TagManager.tsx";
 import BookGrid from "./components/BookGrid.tsx";
 import type { Book, ModoApp } from "./components/types/book.ts";
 import { estaNaCadeia } from "./lib/sequencia";
-
+import DiscreteMode from "./components/DiscreteMode.tsx";
+import DropOverlay from "./components/DropOverlay.tsx";
+import { useArrastarSoltar } from "./lib/arrastarSoltar";
+import { lerLinkDiscreto, salvarLinkDiscreto, urlDeEmbed } from "./lib/modoDiscreto";
+import { sortear, type PedidoAleatorio } from "./lib/aleatorio";
+import { importarCaminhos, eImagem, eMidiaSuportada } from "./components/Importbutton";
+import { definirDestinoImportacao } from "./lib/importacao";
 import { supabase } from "./lib/supabase";
 import { LIBRARY_ID } from "./lib/library";
-
 import type { Media } from "./components/types/media.ts";
 import type { tags } from "./components/types/tag.ts";
-
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import FilterPanel from "./components/FilterPanel.tsx";
@@ -38,7 +41,9 @@ import {
   filtrarMedias,
   type Filtros,
 } from "./lib/filtros";
-
+import ColecoesMenu from "./components/ColecoesMenu.tsx";
+import { lerColecoes, salvarColecoes, type Colecao } from "./lib/colecoes";
+import { aplicarTermos, itemDeLivro, itemDeMidia, type ContextoBusca, type Termo,} from "./lib/busca";
 
 import "./global.css";
 import ImportProgress from "./components/ImportProgress.tsx";
@@ -229,13 +234,25 @@ function App() {
   const [configAberta, setConfigAberta] = useState(false);
   const [filtrosLivros, setFiltrosLivros] =
   useState<FiltrosLivros>(FILTROS_LIVROS_PADRAO);
-
+  const [pedidoAleatorio, setPedidoAleatorio] = useState<PedidoAleatorio | null>(null);
+  const [tagsCopiadas, setTagsCopiadas] = useState<string[]>([]);
+  const [arquivosParaLivro, setArquivosParaLivro] = useState<string[]>([]);
+  const [discreto, setDiscreto] = useState(false);
+  const [linkDiscreto, setLinkDiscreto] = useState("");
+  const [buscaTermos, setBuscaTermos] = useState<Termo[]>([]);
+  const discretoRef = useRef(false);
+  const [colecoes, setColecoes] = useState<Colecao[]>([]);
+  const [buscaExcluirIds, setBuscaExcluirIds] = useState<string[]>([]);
 
   useEffect(() => {
   setAvatar(user ? lerAvatar(user.id) : null);
 }, [user]);
 
-    
+    // Coleções de cada pessoa
+  useEffect(() => {
+    setColecoes(user ? lerColecoes(user.id) : []);
+  }, [user]);
+
   const [categoriaPadraoId, setCategoriaPadraoId] = useState<string | null>(() => {
   try {
     return localStorage.getItem("categoriaPadraoId");
@@ -266,6 +283,59 @@ function App() {
         setTodasTags((atuais) => atuais.map((t) => (t.id === tagId ? atualizada : t)));
       }
 
+    const soltando = useArrastarSoltar((caminhos) => {
+      if (!user) return;
+
+      if (modo === "livros" || criandoLivro) {
+        const imagens = caminhos.filter(eImagem);
+
+        if (imagens.length > 0) {
+          setArquivosParaLivro(imagens);
+          setCriandoLivro(true);
+        }
+
+        return;
+      }
+
+      importarCaminhos(caminhos.filter(eMidiaSuportada));
+    });
+
+    useEffect(() => {
+      definirDestinoImportacao(adicionarMedias);
+    }, []);
+
+    useEffect(() => {
+      setLinkDiscreto(user ? lerLinkDiscreto(user.id) : "");
+    }, [user]);
+
+    useEffect(() => {
+      discretoRef.current = discreto;
+
+      if (discreto) {
+        document.querySelectorAll("video").forEach((v) => v.pause());
+        (document.activeElement as HTMLElement | null)?.blur();
+      }
+    }, [discreto]);
+
+    useEffect(() => {
+      function aoTeclar(e: KeyboardEvent) {
+        if (e.key === "F12") {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          setDiscreto((atual) => !atual);
+          return;
+        }
+
+        if (discretoRef.current && e.key !== "F11") {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }
+
+      window.addEventListener("keydown", aoTeclar, true);
+
+      return () => window.removeEventListener("keydown", aoTeclar, true);
+    }, []);
 
 function alterarCategoriaPadrao(id: string | null) {
   setCategoriaPadraoId(id);
@@ -582,6 +652,68 @@ const categoriaPadrao =
   }
 }
 
+function gravarColecoes(lista: Colecao[]) {
+  setColecoes(lista);
+
+  if (user) salvarColecoes(user.id, lista);
+}
+
+// A busca de agora: tags, exclusões e os filtros do modo atual
+function instantaneoAtual(): Omit<Colecao, "id" | "nome"> {
+  return {
+    modo,
+    buscaTagIds,
+    buscaExcluirIds,
+    termos: buscaTermos,
+    modoTags: filtros.modoTags,
+    ...(modo === "imagens" ? { filtros } : { filtrosLivros }),
+  };
+}
+
+function salvarColecao(nome: string) {
+  gravarColecoes([
+    ...colecoes,
+    { id: crypto.randomUUID(), nome, ...instantaneoAtual() },
+  ]);
+}
+
+function atualizarColecao(id: string) {
+  gravarColecoes(
+    colecoes.map((c) =>
+      c.id === id ? { id: c.id, nome: c.nome, ...instantaneoAtual() } : c
+    )
+  );
+}
+
+function excluirColecao(id: string) {
+  gravarColecoes(colecoes.filter((c) => c.id !== id));
+}
+
+function aplicarColecao(c: Colecao) {
+  // Tags que foram excluídas depois de salvar a coleção são ignoradas
+  const existentes = (ids: string[]) =>
+    ids.filter((id) => todasTags.some((t) => t.id === id));
+  setBuscaTermos(c.termos);
+  setModo(c.modo);
+  setFiltrosAbertos(false);
+  setBuscaTagIds(existentes(c.buscaTagIds));
+  setBuscaExcluirIds(existentes(c.buscaExcluirIds));
+
+  if (c.modo === "imagens") {
+    setFiltros({ ...FILTROS_PADRAO, ...c.filtros, modoTags: c.modoTags });
+  } else {
+    setFiltrosLivros({ ...FILTROS_LIVROS_PADRAO, ...c.filtrosLivros });
+    setFiltros((atuais) => ({ ...atuais, modoTags: c.modoTags }));
+  }
+}
+
+const podeSalvarColecao =
+  buscaTagIds.length + buscaExcluirIds.length + buscaTermos.length > 0 ||
+  (modo === "imagens"
+    ? contarFiltrosAtivos(filtros) > 0 || filtros.ordenarPor !== "padrao"
+    : contarFiltrosLivrosAtivos(filtrosLivros) > 0 ||
+      filtrosLivros.ordenarPor !== "padrao");
+
 async function renomearMedia(mediaId: string, novoNome: string) {
   const nome = novoNome.trim();
 
@@ -689,7 +821,139 @@ async function definirMidiaAnterior(midiaId: string, anteriorId: string | null) 
         )
       );
     }
+        function alterarLinkDiscreto(link: string) {
+      setLinkDiscreto(link);
 
+      if (user) salvarLinkDiscreto(user.id, link);
+    }
+
+    function sortearItem(abrir: boolean) {
+      const alvo =
+        modo === "imagens"
+          ? sortear(mediasFiltradas, pedidoAleatorio?.id)
+          : sortear(livrosFiltrados, pedidoAleatorio?.id);
+
+      if (!alvo) return;
+
+      setPedidoAleatorio((atual) => ({
+        id: alvo.id,
+        abrir,
+        n: (atual?.n ?? 0) + 1,
+      }));
+    }
+
+    function copiarTagsDaMidia(mediaId: string) {
+      const media = medias.find((m) => m.id === mediaId);
+
+      if (media) setTagsCopiadas(media.tags.map((t) => t.id));
+    }
+
+    function copiarTagsDoLivro(livroId: string) {
+      const livro = livros.find((l) => l.id === livroId);
+
+      if (livro) setTagsCopiadas([...livro.tagIds]);
+    }
+
+    function tagsDaAreaDeCopia(): tags[] {
+      return tagsCopiadas
+        .map((id) => todasTags.find((t) => t.id === id))
+        .filter((t): t is tags => Boolean(t));
+    }
+
+    async function colarTagsEmMidias(mediaIds: string[]) {
+      const paraColar = tagsDaAreaDeCopia();
+
+      if (paraColar.length === 0 || mediaIds.length === 0) return;
+
+      const escolhidas = new Set(mediaIds);
+      const novasPorMidia = new Map<string, tags[]>();
+      const linhas: { library_id: string; media_id: string; tag_id: string }[] = [];
+
+      for (const m of medias) {
+        if (!escolhidas.has(m.id)) continue;
+
+        const faltam = paraColar.filter((t) => !m.tags.some((x) => x.id === t.id));
+
+        if (faltam.length === 0) continue;
+
+        novasPorMidia.set(m.id, faltam);
+
+        for (const t of faltam) {
+          linhas.push({ library_id: LIBRARY_ID, media_id: m.id, tag_id: t.id });
+        }
+      }
+
+      if (linhas.length === 0) return;
+
+      for (let i = 0; i < linhas.length; i += 500) {
+        const { error } = await supabase
+          .from("media_tags")
+          .insert(linhas.slice(i, i + 500));
+
+        if (error) {
+          console.error("Erro ao colar tags:", error);
+          alert("Não foi possível colar as tags.");
+          return;
+        }
+      }
+
+      const adicionar = (m: Media): Media => {
+        const novas = novasPorMidia.get(m.id);
+
+        return novas ? { ...m, tags: [...m.tags, ...novas] } : m;
+      };
+
+      setMedias((atuais) => atuais.map(adicionar));
+      setSelectedMedia((atual) => (atual ? adicionar(atual) : atual));
+    }
+
+    async function colarTagsEmLivros(livroIds: string[]) {
+      const paraColar = tagsDaAreaDeCopia();
+
+      if (paraColar.length === 0 || livroIds.length === 0) return;
+
+      const escolhidos = new Set(livroIds);
+      const novasPorLivro = new Map<string, string[]>();
+      const linhas: { library_id: string; book_id: string; tag_id: string }[] = [];
+
+      for (const livro of livros) {
+        if (!escolhidos.has(livro.id)) continue;
+
+        const faltam = paraColar.filter((t) => !livro.tagIds.includes(t.id));
+
+        if (faltam.length === 0) continue;
+
+        novasPorLivro.set(livro.id, faltam.map((t) => t.id));
+
+        for (const t of faltam) {
+          linhas.push({ library_id: LIBRARY_ID, book_id: livro.id, tag_id: t.id });
+        }
+      }
+
+      if (linhas.length === 0) return;
+
+      for (let i = 0; i < linhas.length; i += 500) {
+        const { error } = await supabase
+          .from("book_tags")
+          .insert(linhas.slice(i, i + 500));
+
+        if (error) {
+          console.error("Erro ao colar tags nos livros:", error);
+          alert("Não foi possível colar as tags.");
+          return;
+        }
+      }
+
+      setLivros((atuais) =>
+        atuais.map((livro) => {
+          const novas = novasPorLivro.get(livro.id);
+
+          return novas
+            ? { ...livro, tagIds: [...new Set([...livro.tagIds, ...novas])] }
+            : livro;
+        })
+      );
+    }
   // Carregar galeria, mídias e tags
  useEffect(() => {
         let cancelado = false;
@@ -834,6 +1098,7 @@ async function definirMidiaAnterior(midiaId: string, anteriorId: string | null) 
 
     setTodasTags((atuais) => atuais.filter((t) => t.id !== tagId));
     setBuscaTagIds((atuais) => atuais.filter((id) => id !== tagId));
+    setBuscaExcluirIds((atuais) => atuais.filter((id) => id !== tagId));
     setMedias((atuais) => atuais.map(sem));
     setSelectedMedia((atual) => (atual ? sem(atual) : atual));
   }
@@ -1757,6 +2022,32 @@ useEffect(() => {
         return filhas;
       }, [todasTags]);
 
+     const contextoImagens = useMemo<ContextoBusca>(
+        () => ({
+          modo: "imagens",
+          tags: new Map(todasTags.map((t) => [t.id, t])),
+          filhas: filhasPorCategoria,
+          continuacoes: new Set(
+            medias.map((m) => m.previousMediaId).filter((id): id is string => Boolean(id))
+          ),
+          fila: new Set<string>(),
+        }),
+        [todasTags, filhasPorCategoria, medias]
+      );
+
+      const contextoLivros = useMemo<ContextoBusca>(
+        () => ({
+          modo: "livros",
+          tags: new Map(todasTags.map((t) => [t.id, t])),
+          filhas: filhasPorCategoria,
+          continuacoes: new Set(
+            livros.map((l) => l.previousBookId).filter((id): id is string => Boolean(id))
+          ),
+          fila: new Set(fila.itens.map((l) => l.id)),
+        }),
+        [todasTags, filhasPorCategoria, livros, fila.itens]
+      );
+
       const mediasFiltradas = useMemo(() => {
         const porTag = medias.filter((media) => {
           const corresponde = (tagId: string) =>
@@ -1764,7 +2055,12 @@ useEffect(() => {
               (tag) => tag.id === tagId || filhasPorCategoria.get(tagId)?.has(tag.id)
             );
 
-          if (filtros.tagsExcluidas.some(corresponde)) return false;
+          if (
+            filtros.tagsExcluidas.some(corresponde) ||
+            buscaExcluirIds.some(corresponde)
+          ) {
+            return false;
+          }
 
           if (buscaTagIds.length === 0) return true;
 
@@ -1773,26 +2069,54 @@ useEffect(() => {
             : buscaTagIds.some(corresponde);
         });
 
-        return filtrarMedias(porTag, filtros);
-      }, [medias, filhasPorCategoria, buscaTagIds, filtros]);
+        return aplicarTermos(
+          filtrarMedias(porTag, filtros),
+          itemDeMidia,
+          buscaTermos,
+          contextoImagens
+        );
+      }, [
+        medias,
+        filhasPorCategoria,
+        buscaTagIds,
+        buscaExcluirIds,
+        buscaTermos,
+        contextoImagens,
+        filtros,
+      ]);
 
       const livrosFiltrados = useMemo(() => {
-          const temTag = (livro: Book, tagId: string) =>
-            livro.tagIds.some(
-              (id) => id === tagId || filhasPorCategoria.get(tagId)?.has(id)
-            );
+        const temTag = (livro: Book, tagId: string) =>
+          livro.tagIds.some(
+            (id) => id === tagId || filhasPorCategoria.get(tagId)?.has(id)
+          );
 
-          const porTags = livros.filter((livro) => {
-            if (filtrosLivros.tagsExcluidas.some((t) => temTag(livro, t))) return false;
-            if (buscaTagIds.length === 0) return true;
+        const porTags = livros.filter((livro) => {
+          if (filtrosLivros.tagsExcluidas.some((t) => temTag(livro, t))) return false;
+          if (buscaExcluirIds.some((t) => temTag(livro, t))) return false;
+          if (buscaTagIds.length === 0) return true;
 
-            return filtros.modoTags === "todas"
-              ? buscaTagIds.every((t) => temTag(livro, t))
-              : buscaTagIds.some((t) => temTag(livro, t));
-          });
+          return filtros.modoTags === "todas"
+            ? buscaTagIds.every((t) => temTag(livro, t))
+            : buscaTagIds.some((t) => temTag(livro, t));
+        });
 
-          return filtrarLivros(porTags, filtrosLivros);
-        }, [livros, buscaTagIds, filhasPorCategoria, filtros.modoTags, filtrosLivros]);
+        return aplicarTermos(
+          filtrarLivros(porTags, filtrosLivros),
+          itemDeLivro,
+          buscaTermos,
+          contextoLivros
+        );
+      }, [
+        livros,
+        buscaTagIds,
+        buscaExcluirIds,
+        buscaTermos,
+        contextoLivros,
+        filhasPorCategoria,
+        filtros.modoTags,
+        filtrosLivros,
+      ]);
                       
                 
         
@@ -1833,10 +2157,26 @@ useEffect(() => {
         userEmail={user?.email ?? null}
         onLogin={() => setMostrarAuth(true)}
         updateAvailable={updateAvailable}
+        onAleatorio={sortearItem}
         updating={updating}
         onUpdate={atualizarApp}
+        excluirTagIds={buscaExcluirIds}
+        onExcluirTagIds={setBuscaExcluirIds}
         onOpenSettings={() => setConfigAberta(true)}
         filtrosAbertos={filtrosAbertos}
+        termos={buscaTermos}
+        onTermos={setBuscaTermos}
+        colecoes={
+        <ColecoesMenu
+          colecoes={colecoes}
+          allTags={todasTags}
+          podeSalvar={podeSalvarColecao}
+          onSalvar={salvarColecao}
+          onAplicar={aplicarColecao}
+          onAtualizar={atualizarColecao}
+          onExcluir={excluirColecao}
+        />
+      }
         totalFiltrosAtivos={
           modo === "imagens"
             ? contarFiltrosAtivos(filtros)
@@ -1859,6 +2199,10 @@ useEffect(() => {
          selectedMedia={selectedMedia}
          onSelectMedia={selecionarMedia}
          onAddTag={adicionarTag}
+         pedidoAleatorio={pedidoAleatorio}
+         onCopyTags={copiarTagsDaMidia}
+         onPasteTags={colarTagsEmMidias}
+         copiedTagCount={tagsCopiadas.length}
          onRemoveTag={removerTag}
          onDeleteTag={excluirTag}
          onCustomizeTag={personalizarTag}
@@ -1885,6 +2229,10 @@ useEffect(() => {
           onAddTagToMany={adicionarTagAosLivros}
           onDeleteBooks={removerLivros}
           onSetPrevious={definirLivroAnterior}
+          pedidoAleatorio={pedidoAleatorio}
+          onCopyTags={copiarTagsDoLivro}
+          onPasteTags={colarTagsEmLivros}
+          copiedTagCount={tagsCopiadas.length}
         />
       )}
 
@@ -1931,19 +2279,35 @@ useEffect(() => {
       avatarUrl={avatar}
       onClose={() => setConfigAberta(false)} 
       onChangeAvatar={alterarAvatar}
+      discretoLink={linkDiscreto}
+      onChangeDiscretoLink={alterarLinkDiscreto}
       />}
 
 
       <CreateBook
-
+        arquivosIniciais={arquivosParaLivro}
+        onClose={() => {
+          setCriandoLivro(false);
+          setArquivosParaLivro([]);
+        }}
         aberto={criandoLivro}
         allTags={todasTags}
         categoriaPadraoId={categoriaPadrao?.id ?? null}
         onCreateTag={criarTagCategoria}
-        onClose={() => setCriandoLivro(false)}
         onCreated={() => setVersaoLivros((n) => n + 1)}
       />
       <ImportProgress />
+      {soltando && (
+        <DropOverlay
+          texto={
+            modo === "livros" || criandoLivro
+              ? "Solte as imagens para criar um livro"
+              : "Solte para importar"
+          }
+        />
+      )}
+
+      {discreto && <DiscreteMode url={urlDeEmbed(linkDiscreto)} />}
     </main>
   );
 }

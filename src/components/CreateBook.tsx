@@ -17,6 +17,7 @@ type Props = {
   categoriaPadraoId: string | null;
   onCreateTag: (nome: string, categoriaId?: string | null) => Promise<tags | null>;
   onClose: () => void;
+  arquivosIniciais: string[];
   onCreated: () => void;
 };
 
@@ -70,6 +71,7 @@ function CreateBook({
   categoriaPadraoId,
   onCreateTag,
   onClose,
+  arquivosIniciais,
   onCreated,
 }: Props) {
   const [nome, setNome] = useState("");
@@ -100,7 +102,13 @@ function CreateBook({
     window.addEventListener("keydown", aoTeclar);
     return () => window.removeEventListener("keydown", aoTeclar);
   }, [aberto, enviando, onClose]);
+ 
+  useEffect(() => {
+    if (!aberto || arquivosIniciais.length === 0) return;
 
+    setPaginas((atuais) => ordenar([...new Set([...atuais, ...arquivosIniciais])]));
+  }, [aberto, arquivosIniciais]);
+ 
   if (!aberto) return null;
 
   const busca = textoTag.trim().toLowerCase();

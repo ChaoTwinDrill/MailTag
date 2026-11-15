@@ -7,7 +7,7 @@ import BookInfo from "./BookInfo";
 import BookReader from "./BookReader";
 import BookQueue from "./BookQueue";
 import { FaTimes } from "react-icons/fa";
-
+import type { PedidoAleatorio } from "../lib/aleatorio";
 type BookGridProps = {
   livros: Book[];
   todosLivros: Book[];
@@ -30,6 +30,10 @@ type BookGridProps = {
   onChangeAutoTags: (tagId: string, ids: string[]) => void | Promise<void>;
   onDeleteBooks: (livros: Book[]) => void;
   onSetPrevious: (livroId: string, anteriorId: string | null) => void;
+  pedidoAleatorio: PedidoAleatorio | null;
+  onCopyTags: (livroId: string) => void;
+  onPasteTags: (livroIds: string[]) => void;
+  copiedTagCount: number;
 };
 
 function BookCard({
@@ -82,6 +86,7 @@ function BookCard({
       <div
         ref={ref}
         data-book-card
+        data-book-id={livro.id}
         onClick={(e) => onSelect(livro, e)}
         onDoubleClick={() => onOpen(livro)}
         onContextMenu={(e) => onContextMenu(livro, e)}
@@ -123,6 +128,11 @@ function BookGrid({
   onCreateCategory,
   onChangeAutoTags,
   onSetPrevious,
+  onCopyTags,
+  onPasteTags,
+  copiedTagCount,
+  pedidoAleatorio,
+  
 }: BookGridProps) {
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
@@ -134,8 +144,29 @@ function BookGrid({
   const ancoraRef = useRef<string | null>(null);
   const [leitorNoFim, setLeitorNoFim] = useState(false);
   const selecionado = todosLivros.find((l) => l.id === selecionadoId) ?? null;
+  const ultimoPedido = useRef(pedidoAleatorio?.n ?? 0);
+  const alvos = livros.filter((l) => selecionadas.has(l.id));
 
-  // O livro do leitor vem da lista completa, para não sumir com os filtros
+  useEffect(() => {
+    if (!pedidoAleatorio || pedidoAleatorio.n === ultimoPedido.current) return;
+
+    ultimoPedido.current = pedidoAleatorio.n;
+
+    const alvo = livros.find((l) => l.id === pedidoAleatorio.id);
+
+    if (!alvo) return;
+
+    setMenu(null);
+    setSelecionadas(new Set([alvo.id]));
+    setSelecionadoId(alvo.id);
+    ancoraRef.current = alvo.id;
+
+    if (pedidoAleatorio.abrir) abrirLeitor(alvo.id, false);
+
+    document
+      .querySelector(`[data-book-id="${alvo.id}"]`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [pedidoAleatorio]);
   const leitor = leitorId
     ? todosLivros.find((l) => l.id === leitorId) ?? null
     : null;
@@ -507,7 +538,31 @@ useEffect(() => {
           >
             Excluir {quantidade === 1 ? "livro" : `${quantidade} livros`}
           </button>
-        </div>
+          {quantidade === 1 && (alvos[0]?.tagIds.length ?? 0) > 0 && (
+          <button
+            className="w-full rounded px-3 py-2 text-left text-white hover:bg-botao"
+            onClick={() => {
+              setMenu(null);
+              onCopyTags(alvos[0].id);
+            }}
+          >
+            Copiar tags
+          </button>
+        )}
+
+        {copiedTagCount > 0 && (
+          <button
+            className="w-full rounded px-3 py-2 text-left text-white hover:bg-botao"
+            onClick={() => {
+              setMenu(null);
+              onPasteTags(alvos.map((l) => l.id));
+            }}
+          >
+            Colar {copiedTagCount} {copiedTagCount === 1 ? "tag" : "tags"}
+            {quantidade > 1 ? ` em ${quantidade}` : ""}
+          </button>
+        )}
+       </div>
       )}
 
       {modal && (

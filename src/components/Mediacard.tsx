@@ -104,6 +104,7 @@ function MediaCard({
             onMouseEnter={iniciarPrefetch}
             onMouseLeave={cancelarPrefetch}
             data-media-card
+            data-media-id={media.id}
             onContextMenu={(e) => {
                 e.preventDefault();
                 onContextMenu(media, e.clientX, e.clientY);

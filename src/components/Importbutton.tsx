@@ -40,6 +40,50 @@ async function tokenAtual(): Promise<string | null> {
      const { data, error } = await supabase.auth.getSession();
      return error || !data.session ? null : data.session.access_token;
    }
+    const extensaoDe = (caminho: string) =>
+      caminho.split(".").pop()?.toLowerCase() ?? "";
+
+    export const eMidiaSuportada = (caminho: string) =>
+      Object.prototype.hasOwnProperty.call(tiposMime, extensaoDe(caminho));
+
+    export const eImagem = (caminho: string) =>
+      eMidiaSuportada(caminho) &&
+      tiposMime[extensaoDe(caminho)].startsWith("image/");
+
+// Usada pelo botão IMPORTAR e pelo arrastar e soltar
+    export async function importarCaminhos(caminhos: string[]) {
+      if (caminhos.length === 0) return;
+
+      if (!(await tokenAtual())) {
+        alert("Você precisa estar logado para importar mídias.");
+        return;
+      }
+
+      adicionarTarefas(
+        caminhos.map((arquivo): TarefaImportacao => {
+          const nome = arquivo.split(/[\\/]/).pop() ?? arquivo;
+
+          return {
+            nome,
+            executar: async (ignorarDuplicata: boolean) => {
+              const token = await tokenAtual();
+
+              if (!token) {
+                return { nome, erro: "Você precisa estar logado para importar mídias." };
+              }
+
+              return importarArquivo(
+                arquivo,
+                `[${++sequencia}] ${nome}`,
+                token,
+                undefined,
+                { ignorarDuplicata }
+              );
+            },
+          };
+        })
+      );
+    }
 
     async function calcularHash(blob: Blob): Promise<string> {
       const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
@@ -724,61 +768,26 @@ function ImportButton({ onImport }: ImportButtonProps) {
   }, [onImport]);
 
   async function ImportUwU() {
-    const arquivos = await open({
-      multiple: true,
-      directory: false,
-      filters: [
-        {
-          name: "Imagens",
-          extensions: ["png", "jpg", "jpeg", "gif", "webp", "avif"],
-        },
-        {
-          name: "Vídeos",
-          extensions: ["mp4", "webm", "mov", "mkv"],
-        },
-        {
-          name: "Todos os arquivos",
-          extensions: [
-            "png", "jpg", "jpeg", "gif", "webp", "avif",
-            "mp4", "webm", "mov", "mkv",
-          ],
-        },
-      ],
-    });
+  const arquivos = await open({
+    multiple: true,
+    directory: false,
+    filters: [
+      { name: "Imagens", extensions: ["png", "jpg", "jpeg", "gif", "webp", "avif"] },
+      { name: "Vídeos", extensions: ["mp4", "webm", "mov", "mkv"] },
+      {
+        name: "Todos os arquivos",
+        extensions: [
+          "png", "jpg", "jpeg", "gif", "webp", "avif",
+          "mp4", "webm", "mov", "mkv",
+        ],
+      },
+    ],
+  });
 
-    if (!arquivos) return;
+  if (!arquivos) return;
 
-    if (!(await tokenAtual())) {
-      alert("Você precisa estar logado para importar mídias.");
-      return;
-    }
-
-    adicionarTarefas(
-      arquivos.map((arquivo): TarefaImportacao => {
-        const nome = arquivo.split(/[\\/]/).pop() ?? arquivo;
-
-        return {
-          nome,
-          executar: async (ignorarDuplicata: boolean) => {
-            // Sessão renovada a cada arquivo: filas longas não expiram
-            const token = await tokenAtual();
-
-            if (!token) {
-              return { nome, erro: "Você precisa estar logado para importar mídias." };
-            }
-
-            return importarArquivo(
-              arquivo,
-              `[${++sequencia}] ${nome}`,
-              token,
-              undefined,
-              { ignorarDuplicata }
-            );
-          },
-        };
-      })
-    );
-  }
+  await importarCaminhos(arquivos);
+}
 
   useEffect(() => {
     async function aoColar(e: ClipboardEvent) {
@@ -833,7 +842,7 @@ function ImportButton({ onImport }: ImportButtonProps) {
   return (
     <button
       onClick={ImportUwU}
-      className="px-3 py-2 bg-botao rounded-lg
+      className="px-3 py-2 bg-botao rounded-lg h-12
       text-white transition-colors focus:outline-3 hover:bg-botao/80
       focus:outline-offset-2 focus:outline-botao flex items-center
       gap-1 font-Alexandria font-[500]"
