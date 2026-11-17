@@ -1,6 +1,8 @@
-import { useEffect, type ReactNode, useState } from "react";
+import { useEffect } from "react";
 import { FaTimes } from "react-icons/fa";
 import type { tags } from "./types/tag";
+import TagMultiSelect from "./TagMultiSelect";
+import { Secao, Segmentado, classeCampo } from "./FiltroUI";
 
 import {
   FILTROS_PADRAO,
@@ -19,152 +21,6 @@ type FilterPanelProps = {
   onClose: () => void;
   todasTags: tags[]
 };
-
-const classeCampo =
-  "w-full rounded-md bg-fundo p-2 text-sm outline-none focus:ring-2 focus:ring-purple-400 [color-scheme:dark]";
-
-function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
-  return (
-    <section className="mb-5">
-      <h3 className="mb-2 font-Alexandria text-sm font-[700] uppercase text-gray-300">
-        {titulo}
-      </h3>
-      {children}
-    </section>
-  );
-}
-
-function Segmentado<T extends string>({
-  valor,
-  opcoes,
-  onChange,
-}: {
-  valor: T;
-  opcoes: { valor: T; rotulo: string }[];
-  onChange: (valor: T) => void;
-}) {
-  return (
-    <div className="flex overflow-hidden rounded-md bg-fundo">
-      {opcoes.map((opcao) => (
-        <button
-          key={opcao.valor}
-          type="button"
-          onClick={() => onChange(opcao.valor)}
-          className={`flex-1 px-2 py-1.5 text-sm transition ${
-            valor === opcao.valor
-              ? "bg-botao-claro font-semibold text-fundo"
-              : "hover:bg-botao"
-          }`}
-        >
-          {opcao.rotulo}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ExcluirTags({
-  todasTags,
-  selecionadas,
-  onChange,
-}: {
-  todasTags: tags[];
-  selecionadas: string[];
-  onChange: (ids: string[]) => void;
-}) {
-  const [texto, setTexto] = useState("");
-  const busca = texto.trim().toLowerCase();
-
-  const sugestoes = busca
-    ? todasTags
-        .filter(
-          (t) =>
-            !selecionadas.includes(t.id) &&
-            t.name.toLowerCase().includes(busca)
-        )
-        .slice(0, 20)
-    : [];
-
-  function adicionar(id: string) {
-    onChange([...selecionadas, id]);
-    setTexto("");
-  }
-
-  const estilo = (t: tags) => ({
-    backgroundColor: t.color ?? "#555555",
-    color: t.textColor ?? "#ffffff",
-    border: t.hasBorder ? `2px solid ${t.borderColor ?? "#ffffff"}` : "none",
-  });
-
-  return (
-    <div className="mt-4">
-      <p className="mb-1 text-xs text-gray-300">
-        Ocultar mídias que tenham estas tags:
-      </p>
-
-      {selecionadas.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {selecionadas.map((id) => {
-            const tag = todasTags.find((t) => t.id === id);
-            if (!tag) return null;
-
-            return (
-              <span
-                key={id}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold"
-                style={estilo(tag)}
-              >
-                {tag.name}
-                <button
-                  type="button"
-                  title="Parar de ocultar"
-                  className="hover:opacity-60"
-                  onClick={() => onChange(selecionadas.filter((s) => s !== id))}
-                >
-                  <FaTimes />
-                </button>
-              </span>
-            );
-          })}
-        </div>
-      )}
-
-      <input
-        type="text"
-        autoComplete="off"
-        placeholder="Digite uma tag..."
-        value={texto}
-        onChange={(e) => setTexto(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key !== "Enter") return;
-          e.preventDefault();
-
-          const exata = sugestoes.find((t) => t.name.toLowerCase() === busca);
-          const escolhida = exata ?? (sugestoes.length === 1 ? sugestoes[0] : null);
-
-          if (escolhida) adicionar(escolhida.id);
-        }}
-        className={classeCampo}
-      />
-
-      {sugestoes.length > 0 && (
-        <div className="mt-2 flex max-h-32 flex-wrap gap-2 overflow-y-auto">
-          {sugestoes.map((tag) => (
-            <button
-              key={tag.id}
-              type="button"
-              onClick={() => adicionar(tag.id)}
-              className="rounded px-2 py-1 text-xs font-bold hover:brightness-125"
-              style={estilo(tag)}
-            >
-              {tag.name}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function FilterPanel({
   aberto,
@@ -302,11 +158,15 @@ function FilterPanel({
             ]}
             onChange={(modoTags) => atualizar({ modoTags })}
           />
-             <ExcluirTags
-                todasTags={todasTags}
-                selecionadas={filtros.tagsExcluidas}
+             <div className="mt-4">
+              <TagMultiSelect
+                allTags={todasTags}
+                selectedIds={filtros.tagsExcluidas}
                 onChange={(tagsExcluidas) => atualizar({ tagsExcluidas })}
-                />
+                rotulo="Ocultar mídias que tenham estas tags:"
+                removerTitulo="Parar de ocultar"
+              />
+            </div>
 
         </Secao>
            

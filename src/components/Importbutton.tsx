@@ -21,6 +21,8 @@ export type DadosLivro = {
 
 const WORKER_URL = "https://mailtag-api.oririkkj.workers.dev";
 
+
+
 const tiposMime: Record<string, string> = {
   png: "image/png",
   jpg: "image/jpeg",
@@ -551,7 +553,8 @@ export async function importarArquivo(
     } catch (erroCache) {
       console.error("Não foi possível copiar o original para o cache:", erroCache);
     }
-
+    const { data: sessaoAtual } = await supabase.auth.getSession();
+    const criadoPor = sessaoAtual.session?.user.id ?? null;
     const midia: Media = {
       id,
       libraryId: LIBRARY_ID,
@@ -842,10 +845,7 @@ function ImportButton({ onImport }: ImportButtonProps) {
   return (
     <button
       onClick={ImportUwU}
-      className="px-3 py-2 bg-botao rounded-lg h-12
-      text-white transition-colors focus:outline-3 hover:bg-botao/80
-      focus:outline-offset-2 focus:outline-botao flex items-center
-      gap-1 font-Alexandria font-[500]"
+      className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-lg bg-botao px-4 font-Alexandria font-[500] text-white transition hover:brightness-125 focus:outline-none focus-visible:ring-2 focus-visible:ring-botao-claro"
     >
       <FaRegPlusSquare className="text-lg" />
       IMPORTAR

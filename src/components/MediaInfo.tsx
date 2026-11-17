@@ -1,10 +1,14 @@
 import { useEffect, useState, useRef } from "react";
-import Tagbutton from "./Tagbutton";
+import AdicionarTagBar from "./AdicionarTagBar";
 import TagEditor from "./TagEditor";
+import TagGroups from "./TagGroups";
+import PainelVazio from "./PainelVazio";
+import InfoLista from "./InfoLista";
+import { FaImages } from "react-icons/fa";
 import VideoPlayer from "./VideoPlayer";
 import type { Media } from "./types/media";
 import type { tags } from "./types/tag";
-
+import { useNomeDoPerfil } from "../lib/perfis";
 import { obterArquivoCacheado } from "../lib/cache";
 import Sequencia from "./Sequencia";
 import { formatarDuracao } from "../lib/duracao";
@@ -14,6 +18,7 @@ const anteriorDaMidia = (m: Media) => m.previousMediaId ?? null;
 interface MediaInfoProps {
   media: Media | null;
   allTags: tags[];
+  onSearchTag?: (tagId: string, excluir: boolean) => void;
   onAddTag: (mediaId: string, nomeTag: string) => void;
   onRemoveTag: (mediaId: string, tagId: string) => void;
   onDeleteTag: (tagId: string) => void;
@@ -66,6 +71,7 @@ function MediaInfo({
   onCustomizeTag,
   onChangeAutoTags,
   onRenameMedia,
+  onSearchTag,
   onOpenViewer,
   onCreateCategory,
   todasMedias,
@@ -85,7 +91,7 @@ function MediaInfo({
   const [nomeEditado, setNomeEditado] = useState("");
 
   const cancelouNome = useRef(false);
-  
+
   // Miniatura mostrada enquanto o original ainda está sendo carregado
   const [previa, setPrevia] = useState("");
 
@@ -142,7 +148,7 @@ function MediaInfo({
   useEffect(() => {
     setEditandoNome(false);
   }, [media?.id]);
-
+  const adicionadoPor = useNomeDoPerfil(media?.createdBy);
   // Inicia a renomeação da mídia
   function iniciarRenomeacao() {
     if (!media) return;
@@ -180,15 +186,11 @@ function MediaInfo({
 
   if (!media) {
     return (
-      <aside className="w-1/4 shrink-0 bg-base text-white">
-        <h2 className="text-lg font-semibold">
-          Informações de mídia
-        </h2>
-
-        <p className="mt-4 text-gray-400">
-          Nenhuma mídia selecionada.
-        </p>
-      </aside>
+      <PainelVazio
+        icone={FaImages}
+        titulo="Nenhuma mídia selecionada"
+        texto="Clique em uma mídia para ver os detalhes e editar as tags."
+      />
     );
   }
 
@@ -246,7 +248,7 @@ function MediaInfo({
                 setEditandoNome(false);
               }
             }}
-            className="w-full rounded-md bg-fundo p-1 text-[20px] font-Alexandria font-[700] outline-none focus:ring-2 focus:ring-purple-400"
+            className="w-full rounded-md bg-fundo p-1 text-[20px] font-Alexandria font-[700] outline-none focus:ring-2 focus:ring-botao-claro"
           />
         ) : (
           <h1
@@ -258,144 +260,58 @@ function MediaInfo({
           </h1>
         )}
 
-        {/* Tags da mídia */}
-        {media.tags.length > 0 && (
-          <div className="flex flex-col m-2 gap-3">
-            {Object.entries(
-              media.tags.reduce<
-                Record<
-                  string,
-                  {
-                    categoria: tags | null;
-                    tags: tags[];
-                  }
-                >
-              >((grupos, tag) => {
-                const categoria =
-                  allTags.find((t) => t.id === tag.parentTagId) ?? null;
-
-                const chave = categoria?.id ?? "sem-categoria";
-
-                if (!grupos[chave]) {
-                  grupos[chave] = {
-                    categoria,
-                    tags: [],
-                  };
-                }
-
-                grupos[chave].tags.push(tag);
-
-                return grupos;
-              }, {})
-            )
-              .sort(([, a], [, b]) => {
-                if (!a.categoria) return 1;
-                if (!b.categoria) return -1;
-
-                const pa = a.categoria.priority ?? Infinity;
-                const pb = b.categoria.priority ?? Infinity;
-
-                if (pa !== pb) return pa - pb;
-
-                return a.categoria.name.localeCompare(
-                  b.categoria.name,
-                  "pt-BR"
-                );
-              })
-              .map(([id, grupo]) => (
-                <div
-                  key={id}
-                  className="relative min-w-0 mt-3 p-2 bg-fundo border-t-25 border-b-15 rounded-t-lg rounded-b-lg border-card"
-                >
-                  {grupo.categoria && (
-                    <span className="absolute -top-[25px] left-1/2 -translate-x-1/2 px-2 bg-card font-semibold text-white whitespace-nowrap">
-                      {grupo.categoria.name}
-                    </span>
-                  )}
-
-                  <div className="flex flex-wrap gap-2">
-                    {grupo.tags.map((tag) => (
-                      <span
-                        key={tag.id}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-
-                          setMenu({
-                            tag,
-                            x: e.clientX,
-                            y: e.clientY,
-                          });
-                        }}
-                        onMouseDown={(e) => {
-                          if (e.button === 1) {
-                            e.preventDefault();
-                            onRemoveTag(media.id, tag.id);
-                          }
-                        }}
-                        className="rounded px-2 py-1 font-semibold cursor-pointer"
-                        style={{
-                          backgroundColor: tag.color ?? undefined,
-                          color: tag.textColor ?? "#ffffff",
-                          border: tag.hasBorder
-                            ? `2px solid ${tag.borderColor ?? "#ffffff"}`
-                            : "none",
-                        }}
-                      >
-                        {tag.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-          </div>
-        )}
+        {/* Tags da mídia, agrupadas por categoria */}
+        <TagGroups
+          tags={media.tags}
+          allTags={allTags}
+          onClick={(tag, e) => onSearchTag?.(tag.id, e.ctrlKey || e.metaKey)}
+          onContextMenu={(tag, e) =>
+            setMenu({ tag, x: e.clientX, y: e.clientY })
+          }
+          onRemove={(tag) => onRemoveTag(media.id, tag.id)}
+        />
 
         <Sequencia
-        rotuloItem="mídia"
-        atualId={media.id}
-        itens={todasMedias}
-        getAnteriorId={anteriorDaMidia}
-        getMiniaturaKey={miniaturaDaMidia}
-        proporcao="aspect-square"
-        onDefinirAnterior={onSetPrevious}
-        onAbrir={onOpenRelated}
-      />
+          rotuloItem="mídia"
+          atualId={media.id}
+          itens={todasMedias}
+          getAnteriorId={anteriorDaMidia}
+          getMiniaturaKey={miniaturaDaMidia}
+          proporcao="aspect-square"
+          onDefinirAnterior={onSetPrevious}
+          onAbrir={onOpenRelated}
+        />
 
-        {/* Informações da mídia */}
-        <p className="mt-2 text-sm text-gray-400 font-Alexandria font-[500]">
-          Tamanho: {formatarTamanho(media.size)}
-        </p>
-
-        {media.width && media.height ? (
-          <p className="mt-1 text-sm text-gray-400 font-Alexandria font-[500]">
-            {media.width} x {media.height} px
-          </p>
-        ) : null}
-
-        <p className="mt-1 text-sm text-gray-400 font-Alexandria font-[500]">
-          Extensão:{" "}
-          {media.name.split(".").pop()?.toUpperCase() ?? "Sem extensão"}
-        </p>
-        {media.durationSeconds != null && (
-          <p className="mt-1 text-sm text-gray-400 font-Alexandria font-[500]">
-            Duração: {formatarDuracao(media.durationSeconds)}
-          </p>
-        )}
-
-        <p className="mt-1 text-sm text-gray-400 font-Alexandria font-[500]">
-          Criado em: {formatarData(media.createdAt)}
-        </p>
-
-        <p className="mt-1 pb-6 text-sm text-gray-400 font-Alexandria font-[500]">
-          Modificado em: {formatarData(media.modifiedAt)}
-        </p>
+        <InfoLista
+          itens={[
+            { rotulo: "Tamanho", valor: formatarTamanho(media.size) },
+            media.width && media.height
+              ? { rotulo: "Dimensões", valor: `${media.width} × ${media.height} px` }
+              : null,
+            {
+              rotulo: "Extensão",
+              valor: media.name.split(".").pop()?.toUpperCase() ?? "Sem extensão",
+            },
+            media.durationSeconds != null
+              ? { rotulo: "Duração", valor: formatarDuracao(media.durationSeconds) }
+              : null,
+            { rotulo: "Criado em", valor: formatarData(media.createdAt) },
+            { rotulo: "Modificado em", valor: formatarData(media.modifiedAt) },
+            {
+              rotulo: "Adicionado por",
+              valor: media.createdBy ? adicionadoPor ?? "Usuário" : "—",
+            },
+          ]}
+        />
       </div>
 
       {/* Botão para adicionar tags */}
-      <Tagbutton
-        media={media}
-        onAddTag={onAddTag}
+      <AdicionarTagBar
+        resetKey={media.id}
+        tagIdsAtuais={media.tags.map((t) => t.id)}
+        
         allTags={allTags}
+        onAddTag={(nome) => onAddTag(media.id, nome)}
       />
 
       {/* Menu de contexto da tag */}
@@ -437,11 +353,11 @@ function MediaInfo({
       {/* Modal de personalização */}
       {tagPersonalizando && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-fade-in"
           onClick={() => setTagPersonalizando(null)}
         >
           <div
-            className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-base text-white shadow-xl"
+            className="flex max-h-[85vh] w-full max-w-2xl flex-col animate-pop rounded-xl border border-border bg-base text-white shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 pb-2">
@@ -461,6 +377,7 @@ function MediaInfo({
               key={tagPersonalizando.id}
               tag={tagPersonalizando}
               allTags={allTags}
+              
               onSave={onCustomizeTag}
               onChangeAutoTags={onChangeAutoTags}
               onCreateCategory={onCreateCategory}

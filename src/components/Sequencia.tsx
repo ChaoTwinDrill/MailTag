@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FaTimes } from "react-icons/fa";
+import { FaPlus, FaTimes } from "react-icons/fa";
 import { estaNaCadeia } from "../lib/sequencia";
 import { obterArquivoCacheado } from "../lib/cache";
+import CapaLivro from "./CapaLivro";
 
 type ItemBase = { id: string; name: string };
 
@@ -12,6 +13,7 @@ type Props<T extends ItemBase> = {
   getAnteriorId: (item: T) => string | null;
   getMiniaturaKey: (item: T) => string | null;
   proporcao: string; // classe do Tailwind, ex.: "aspect-square"
+  variante?: "midia" | "livro";
   onDefinirAnterior: (itemId: string, anteriorId: string | null) => void;
   onAbrir: (id: string) => void;
 };
@@ -28,9 +30,11 @@ function Miniatura({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [src, setSrc] = useState("");
+  const [pronta, setPronta] = useState(false);
 
   useEffect(() => {
     setSrc("");
+    setPronta(false);
 
     if (!chave) return;
 
@@ -62,50 +66,85 @@ function Miniatura({
   return (
     <div
       ref={ref}
-      className={`w-full overflow-hidden rounded bg-card ${proporcao}`}
+      className={`relative w-full overflow-hidden rounded bg-card ${proporcao}`}
     >
       {src && (
         <img
           src={src}
           alt=""
           decoding="async"
-          className="h-full w-full object-cover"
+          onLoad={() => setPronta(true)}
+          className={`h-full w-full object-cover transition-opacity duration-300 ${
+            pronta ? "opacity-100" : "opacity-0"
+          }`}
+        />
+      )}
+
+      {chave && !pronta && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/15 to-transparent bg-[length:200%_100%]"
         />
       )}
     </div>
   );
 }
 
-function Cartao({
-  nome,
+function Thumb({
   chave,
+  nome,
   proporcao,
+  variante,
+}: {
+  chave: string | null;
+  nome: string;
+  proporcao: string;
+  variante: "midia" | "livro";
+}) {
+  if (variante === "livro") {
+    return <CapaLivro chave={chave} titulo={nome} className={proporcao} />;
+  }
+
+  return <Miniatura chave={chave} proporcao={proporcao} />;
+}
+
+// Uma relação (anterior ou continuação), com opção de desfazer
+function Linha({
+  rotulo,
+  nome,
+  thumb,
   onAbrir,
   onRemover,
 }: {
+  rotulo: string;
   nome: string;
-  chave: string | null;
-  proporcao: string;
+  thumb: React.ReactNode;
   onAbrir: () => void;
   onRemover: () => void;
 }) {
   return (
-    <div className="relative min-w-0">
+    <div className="flex items-center gap-2 rounded-md bg-base/60 p-1.5">
       <button
         type="button"
         title={`Abrir ${nome}`}
         onClick={onAbrir}
-        className="block w-full text-left hover:brightness-110"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left transition hover:brightness-125"
       >
-        <Miniatura chave={chave} proporcao={proporcao} />
-        <span className="mt-1 block truncate text-xs font-semibold">{nome}</span>
+        <span className="w-9 shrink-0">{thumb}</span>
+
+        <span className="min-w-0">
+          <span className="block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+            {rotulo}
+          </span>
+          <span className="block truncate text-xs font-semibold">{nome}</span>
+        </span>
       </button>
 
       <button
         type="button"
         title="Desfazer vínculo"
         onClick={onRemover}
-        className="absolute right-1 top-1 rounded-full bg-black/70 p-1.5 text-white hover:bg-black"
+        className="shrink-0 rounded-full p-1.5 text-gray-300 transition hover:bg-black/40 hover:text-white"
       >
         <FaTimes className="h-3 w-3" />
       </button>
@@ -113,7 +152,8 @@ function Cartao({
   );
 }
 
-const classeMais = "rounded bg-botao px-2 py-1 text-xs hover:brightness-125";
+const classeMais =
+  "inline-flex items-center gap-1.5 rounded bg-botao px-2 py-1 text-xs transition hover:brightness-125";
 
 export default function Sequencia<T extends ItemBase>({
   rotuloItem,
@@ -122,11 +162,14 @@ export default function Sequencia<T extends ItemBase>({
   getAnteriorId,
   getMiniaturaKey,
   proporcao,
+  variante = "midia",
   onDefinirAnterior,
   onAbrir,
 }: Props<T>) {
   const [modo, setModo] = useState<"anterior" | "continuacao" | null>(null);
   const [texto, setTexto] = useState("");
+  const stripRef = useRef<HTMLDivElement>(null);
+  const atualRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setModo(null);
@@ -135,14 +178,77 @@ export default function Sequencia<T extends ItemBase>({
 
   const porId = useMemo(() => new Map(itens.map((i) => [i.id, i])), [itens]);
 
+  const filhosPorPai = useMemo(() => {
+    const mapa = new Map<string, T[]>();
+
+    for (const item of itens) {
+      const pai = getAnteriorId(item);
+
+      if (!pai) continue;
+
+      const lista = mapa.get(pai);
+
+      if (lista) lista.push(item);
+      else mapa.set(pai, [item]);
+    }
+
+    return mapa;
+  }, [itens, getAnteriorId]);
+
   const atual = porId.get(atualId) ?? null;
   const idDoAnterior = atual ? getAnteriorId(atual) : null;
   const anterior = idDoAnterior ? porId.get(idDoAnterior) ?? null : null;
+  const continuacoes = filhosPorPai.get(atualId) ?? [];
 
-  const continuacoes = useMemo(
-    () => itens.filter((i) => getAnteriorId(i) === atualId),
-    [itens, atualId, getAnteriorId]
-  );
+  // Cadeia inteira: tudo que vem antes e, seguindo a primeira continuação, depois
+  const nos = useMemo(() => {
+    if (!atual) return [];
+
+    const vistos = new Set<string>([atualId]);
+    const antes: T[] = [];
+    let cursor: T = atual;
+
+    for (;;) {
+      const paiId = getAnteriorId(cursor);
+
+      if (!paiId || vistos.has(paiId)) break;
+
+      const pai = porId.get(paiId);
+
+      if (!pai) break;
+
+      vistos.add(paiId);
+      antes.unshift(pai);
+      cursor = pai;
+    }
+
+    const depois: T[] = [];
+    let id = atualId;
+
+    for (;;) {
+      const proximo = (filhosPorPai.get(id) ?? []).find((f) => !vistos.has(f.id));
+
+      if (!proximo) break;
+
+      vistos.add(proximo.id);
+      depois.push(proximo);
+      id = proximo.id;
+    }
+
+    return [...antes, atual, ...depois];
+  }, [atual, atualId, porId, filhosPorPai, getAnteriorId]);
+
+  const posicao = nos.findIndex((n) => n.id === atualId);
+
+  // Centraliza o item atual na faixa
+  useEffect(() => {
+    const faixa = stripRef.current;
+    const el = atualRef.current;
+
+    if (faixa && el) {
+      faixa.scrollLeft = el.offsetLeft - faixa.clientWidth / 2 + el.offsetWidth / 2;
+    }
+  }, [atualId, nos.length]);
 
   function anteriorDe(id: string) {
     const item = porId.get(id);
@@ -206,6 +312,8 @@ export default function Sequencia<T extends ItemBase>({
     fechar();
   }
 
+  const semVinculos = !anterior && continuacoes.length === 0;
+
   return (
     <div className="m-2 mt-5">
       <div className="relative min-w-0 rounded-b-lg rounded-t-lg border-b-15 border-t-25 border-card bg-fundo p-2">
@@ -213,59 +321,124 @@ export default function Sequencia<T extends ItemBase>({
           Sequência
         </span>
 
-        <div className="mb-4">
-          <p className="mb-2 text-sm text-gray-300">Antes</p>
+        {nos.length > 1 && (
+          <div className="mb-3">
+            <p className="mb-1 text-xs text-gray-300">
+              Parte {posicao + 1} de {nos.length}
+            </p>
 
-          {anterior ? (
-            <div className="grid grid-cols-2 gap-3">
-              <Cartao
-                nome={anterior.name}
-                chave={getMiniaturaKey(anterior)}
-                proporcao={proporcao}
-                onAbrir={() => onAbrir(anterior.id)}
-                onRemover={() => onDefinirAnterior(atualId, null)}
-              />
+            <div
+              ref={stripRef}
+              className="relative flex gap-2 overflow-x-auto px-1 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {nos.map((no, i) => {
+                const ehAtual = no.id === atualId;
+
+                return (
+                  <button
+                    key={no.id}
+                    ref={ehAtual ? atualRef : undefined}
+                    type="button"
+                    title={no.name}
+                    aria-current={ehAtual ? "true" : undefined}
+                    onClick={() => !ehAtual && onAbrir(no.id)}
+                    className={`relative w-14 shrink-0 rounded text-left transition ${
+                      ehAtual
+                        ? "ring-2 ring-botao-claro ring-offset-2 ring-offset-fundo"
+                        : "opacity-60 hover:opacity-100"
+                    }`}
+                  >
+                    <Thumb
+                      chave={getMiniaturaKey(no)}
+                      nome={no.name}
+                      proporcao={proporcao}
+                      variante={variante}
+                    />
+
+                    <span className="absolute left-1 top-1 rounded bg-black/70 px-1 text-[10px] font-bold leading-4 text-white">
+                      {i + 1}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2">
+          {anterior ? (
+            <Linha
+              rotulo="Antes"
+              nome={anterior.name}
+              thumb={
+                <Thumb
+                  chave={getMiniaturaKey(anterior)}
+                  nome={anterior.name}
+                  proporcao={proporcao}
+                  variante={variante}
+                />
+              }
+              onAbrir={() => onAbrir(anterior.id)}
+              onRemover={() => onDefinirAnterior(atualId, null)}
+            />
           ) : (
+            <div>
+              <button
+                type="button"
+                onClick={() => setModo("anterior")}
+                className={classeMais}
+              >
+                <FaPlus className="h-2.5 w-2.5" />
+                Definir anterior
+              </button>
+            </div>
+          )}
+
+          {continuacoes.map((c) => (
+            <Linha
+              key={c.id}
+              rotulo="Continuação"
+              nome={c.name}
+              thumb={
+                <Thumb
+                  chave={getMiniaturaKey(c)}
+                  nome={c.name}
+                  proporcao={proporcao}
+                  variante={variante}
+                />
+              }
+              onAbrir={() => onAbrir(c.id)}
+              onRemover={() => onDefinirAnterior(c.id, null)}
+            />
+          ))}
+
+          <div>
             <button
               type="button"
-              onClick={() => setModo("anterior")}
+              onClick={() => setModo("continuacao")}
               className={classeMais}
             >
-              + Definir
+              <FaPlus className="h-2.5 w-2.5" />
+              Adicionar continuação
             </button>
-          )}
+          </div>
         </div>
 
-        <div>
-          <p className="mb-2 text-sm text-gray-300">Continuação</p>
-
-          {continuacoes.length > 0 && (
-            <div className="mb-3 grid grid-cols-2 gap-3">
-              {continuacoes.map((c) => (
-                <Cartao
-                  key={c.id}
-                  nome={c.name}
-                  chave={getMiniaturaKey(c)}
-                  proporcao={proporcao}
-                  onAbrir={() => onAbrir(c.id)}
-                  onRemover={() => onDefinirAnterior(c.id, null)}
-                />
-              ))}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setModo("continuacao")}
-            className={classeMais}
-          >
-            + Adicionar
-          </button>
-        </div>
+        {semVinculos && !modo && (
+          <p className="mt-3 text-xs text-gray-400">
+            Ligue este {rotuloItem} a outros para montar uma ordem (volumes,
+            partes, versões).
+          </p>
+        )}
 
         {modo && (
           <div className="mt-4 border-t border-border pt-3">
+            <p className="mb-2 text-xs font-semibold text-gray-300">
+              {modo === "anterior"
+                ? `Qual ${rotuloItem} vem antes?`
+                : `Qual ${rotuloItem} continua este?`}
+            </p>
+
             <input
               autoFocus
               autoComplete="off"
@@ -291,7 +464,7 @@ export default function Sequencia<T extends ItemBase>({
                   if (escolhido) escolher(escolhido);
                 }
               }}
-              className="w-full rounded-md bg-base p-2 text-sm text-white outline-none focus:ring-2 focus:ring-purple-400"
+              className="w-full rounded-md bg-base p-2 text-sm text-white outline-none focus:ring-2 focus:ring-botao-claro"
             />
 
             {termo && todasSugestoes.length === 0 && (
@@ -309,11 +482,13 @@ export default function Sequencia<T extends ItemBase>({
                       type="button"
                       title={item.name}
                       onClick={() => escolher(item)}
-                      className="min-w-0 rounded text-left hover:brightness-125"
+                      className="min-w-0 rounded text-left transition hover:brightness-125"
                     >
-                      <Miniatura
+                      <Thumb
                         chave={getMiniaturaKey(item)}
+                        nome={item.name}
                         proporcao={proporcao}
+                        variante={variante}
                       />
                       <span className="mt-1 block truncate text-[11px]">
                         {item.name}

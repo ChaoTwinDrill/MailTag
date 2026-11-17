@@ -5,6 +5,8 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import CreateBook from "./components/CreateBook.tsx";
 import BookFilterPanel from "./components/BookFilterPanel";
+import { definirUsuarioPrefs } from "./lib/tagPrefs.ts";
+import { carregarPerfis, limparPerfis } from "./lib/perfis.ts";
 import Settings from "./components/Settings.tsx";
 import {
   FILTROS_LIVROS_PADRAO,
@@ -68,6 +70,7 @@ type Linha = Record<string, any>;
           textColor: tag.text_color,
           priority: tag.priority ?? null,
           autoTagIds: tag.auto_tag_ids ?? [],
+          aliases: Array.isArray(tag.aliases) ? tag.aliases : [],
         };
       }
 
@@ -75,6 +78,7 @@ type Linha = Record<string, any>;
         return {
           previousMediaId: media.previous_media_id ?? null,
           id: media.id,
+          createdBy: media.created_by ?? null,
           libraryId: media.library_id,
           name: media.name,
           src: "",
@@ -200,6 +204,7 @@ async function carregarLivros(): Promise<Book[]> {
     : null,
     pageCount: paginasPorLivro.get(l.id) ?? 0,
     tagIds: tagIdsPorLivro.get(l.id) ?? [],
+    createdBy: l.created_by ?? null,
     createdAt: new Date(l.created_at),
     modifiedAt: new Date(l.updated_at),
     previousBookId: l.previous_book_id ?? null,
@@ -260,7 +265,12 @@ function App() {
     return null;
   }
 });
+useEffect(() => {
+  definirUsuarioPrefs(user?.id ?? null);
 
+  if (user) carregarPerfis();
+  else limparPerfis();
+}, [user?.id]);
     async function definirTagsAutomaticas(tagId: string, ids: string[]) {
         const limpos = ids.filter((id) => id !== tagId);
 
@@ -1828,7 +1838,8 @@ async function adicionarTagAosLivros(livroIds: string[], nomeTag: string) {
           temBorda: boolean,
           corBorda: string | null,
           parentTagId: string | null,
-          prioridade: number | null
+          prioridade: number | null,
+          sinonimos?: string[]
         ) {
           try {
             const nomeLimpo = nome.trim();
@@ -1849,6 +1860,9 @@ async function adicionarTagAosLivros(livroIds: string[], nomeTag: string) {
                 text_color: corTexto,
                 parent_tag_id: parentTagId,
                 priority: prioridade,
+                ...(sinonimos
+                  ? { aliases: sinonimos.map((a) => a.trim()).filter(Boolean) }
+                  : {}),
               })
               .eq("library_id", LIBRARY_ID)
               .eq("id", tagId)
@@ -2047,7 +2061,19 @@ useEffect(() => {
         }),
         [todasTags, filhasPorCategoria, livros, fila.itens]
       );
-
+      function buscarPorTag(tagId: string, excluir: boolean) {
+        if (excluir) {
+          setBuscaTagIds((atuais) => atuais.filter((id) => id !== tagId));
+          setBuscaExcluirIds((atuais) =>
+            atuais.includes(tagId) ? atuais : [...atuais, tagId]
+          );
+        } else {
+          setBuscaExcluirIds((atuais) => atuais.filter((id) => id !== tagId));
+          setBuscaTagIds((atuais) =>
+            atuais.includes(tagId) ? atuais : [...atuais, tagId]
+          );
+        }
+      }
       const mediasFiltradas = useMemo(() => {
         const porTag = medias.filter((media) => {
           const corresponde = (tagId: string) =>
@@ -2197,6 +2223,7 @@ useEffect(() => {
          medias={mediasFiltradas}
          allTags={todasTags}
          selectedMedia={selectedMedia}
+         onSearchTag={buscarPorTag}
          onSelectMedia={selecionarMedia}
          onAddTag={adicionarTag}
          pedidoAleatorio={pedidoAleatorio}
@@ -2220,6 +2247,7 @@ useEffect(() => {
           livros={livrosFiltrados}
           todosLivros={livros}
           fila={fila}
+          onSearchTag={buscarPorTag}
           allTags={todasTags}
           onAddTag={adicionarTagAoLivro}
           onRemoveTag={removerTagDoLivro}

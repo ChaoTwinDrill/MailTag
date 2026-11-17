@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { FaTimes } from "react-icons/fa";
 import type { Media } from "./types/media";
 import type { tags } from "./types/tag";
 import TagEditor from "./TagEditor";
+import TagChip from "./TagChip";
 import type { Book } from "./types/book";
+import { tagCorresponde } from "../lib/tags";
+import { FaRegStar, FaStar, FaTimes } from "react-icons/fa";
+import { alternarFavorita, useTagPrefs } from "../lib/tagPrefs";
 
 type TagManagerProps = {
   aberto: boolean;
@@ -13,6 +16,7 @@ type TagManagerProps = {
   onCreateCategory: (nome: string, categoriaId?: string | null) => Promise<tags | null>;
   categoriaPadraoId: string | null;
   onChangeCategoriaPadrao: (id: string | null) => void;
+
   onClose: () => void;
   onCustomizeTag: (
     tagId: string,
@@ -29,15 +33,7 @@ type TagManagerProps = {
 };
 
 const classeCampo =
-  "w-full rounded-md bg-fundo p-2 text-sm outline-none focus:ring-2 focus:ring-purple-400 [color-scheme:dark]";
-
-function estiloTag(t: tags) {
-  return {
-    backgroundColor: t.color ?? "#555555",
-    color: t.textColor ?? "#ffffff",
-    border: t.hasBorder ? `2px solid ${t.borderColor ?? "#ffffff"}` : "none",
-  };
-}
+  "w-full rounded-md bg-fundo p-2 text-sm outline-none focus:ring-2 focus:ring-botao-claro [color-scheme:dark]";
 
 function TagManager({
   livros,
@@ -99,13 +95,15 @@ function TagManager({
 
 const totalDeUsos = (id: string) =>
   (contagens.midias.get(id) ?? 0) + (contagens.livros.get(id) ?? 0);
+  const prefs = useTagPrefs();
 
   if (!aberto) return null;
 
   const termo = busca.trim().toLowerCase();
 
   const lista = allTags
-  .filter((t) => !termo || t.name.toLowerCase().includes(termo))
+  .filter((t) => !termo || tagCorresponde(t, termo))
+  
   .sort((a, b) => {
     if (ordem !== "nome") {
       const diferenca =
@@ -153,14 +151,15 @@ const totalDeUsos = (id: string) =>
   return (
     <div
       data-painel-filtros
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-base text-white shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col animate-pop rounded-xl border border-border bg-base text-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 pb-2">
+          
           <h2 className="font-Alexandria text-lg font-[700]">
             {editando ? `Editar "${editando.name}"` : "Gerenciar tags"}
           </h2>
@@ -235,7 +234,7 @@ const totalDeUsos = (id: string) =>
               value={ordem}
               onChange={(e) => setOrdem(e.target.value as "nome" | "mais" | "menos")}
               title="Ordenar"
-              className="w-40 shrink-0 rounded-md bg-fundo p-2 text-sm outline-none focus:ring-2 focus:ring-purple-400 [color-scheme:dark]"
+              className="w-40 shrink-0 rounded-md bg-fundo p-2 text-sm outline-none focus:ring-2 focus:ring-botao-claro [color-scheme:dark]"
             >
               <option value="nome">Nome (A–Z)</option>
               <option value="mais">Mais usadas</option>
@@ -268,7 +267,9 @@ const totalDeUsos = (id: string) =>
                   Nenhuma tag encontrada.
                 </p>
               ) : (
+                
                 lista.map((tag) => {
+                  const fav = prefs.favoritas.includes(tag.id);
                   const categoria = allTags.find(
                     (t) => t.id === tag.parentTagId
                   );
@@ -280,21 +281,27 @@ const totalDeUsos = (id: string) =>
                       key={tag.id}
                       className="mb-2 flex items-center gap-3 rounded-md bg-fundo p-2"
                     >
-                      <span
-                        className="shrink-0 rounded px-2 py-1 text-sm font-semibold"
-                        style={estiloTag(tag)}
-                      >
-                        {tag.name}
-                      </span>
+                      <TagChip tag={tag} tamanho="md" className="shrink-0 text-sm" />
 
                       <span className="min-w-0 flex-1 truncate text-xs text-gray-300">
                         {tag.priority !== null && `Prioridade ${tag.priority} · `}
                         {categoria ? `${categoria.name} · ` : ""}
                         {midiasDaTag} {midiasDaTag === 1 ? "mídia" : "mídias"}
+                        {tag.aliases && tag.aliases.length > 0 && `Sinônimos: ${tag.aliases.join(", ")} · `}
                         {livrosDaTag > 0 &&
                           ` · ${livrosDaTag} ${livrosDaTag === 1 ? "livro" : "livros"}`}
                       </span>
-
+                          <button
+                          type="button"
+                          title={fav ? "Remover dos favoritos" : "Favoritar"}
+                          aria-pressed={fav}
+                          onClick={() => alternarFavorita(tag.id)}
+                          className={`rounded p-1.5 transition hover:brightness-125 ${
+                            fav ? "text-yellow-300" : "text-gray-400"
+                          }`}
+                        >
+                          {fav ? <FaStar /> : <FaRegStar />}
+                        </button>
                       <button
                         type="button"
                         onClick={() => abrirEdicao(tag)}

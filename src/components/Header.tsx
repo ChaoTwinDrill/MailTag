@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react";
 import type { Media } from "./types/media";
 import type { tags } from "./types/tag";
-
+import { tagCorresponde } from "../lib/tags";
 import ImportButton from "./Importbutton";
+import TagChip from "./TagChip";
 import {
   FaSearch,
   FaFilter,
@@ -119,7 +120,7 @@ function Header({
               return false;
             }
 
-            const correspondeAoNome = tag.name.toLowerCase().includes(segmento);
+            const correspondeAoNome = tagCorresponde(tag, segmento);
 
             const categoriaCorrespondente = allTags.some(
               (categoria) =>
@@ -258,28 +259,13 @@ function Header({
             if (!tag) return null;
 
             return (
-              <span
+              <TagChip
                 key={tag.id}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold shrink-0"
-                style={{
-                  backgroundColor: tag.color ?? "#555555",
-                  color: tag.textColor ?? "#ffffff",
-                  border: tag.hasBorder
-                    ? `2px solid ${tag.borderColor ?? "#ffffff"}`
-                    : "none",
-                }}
-              >
-                {tag.name}
-
-                <button
-                  type="button"
-                  onClick={() => removerTag(tag.id)}
-                  className="hover:opacity-60"
-                  title="Remover tag da pesquisa"
-                >
-                  <FaTimes />
-                </button>
-              </span>
+                tag={tag}
+                className="shrink-0"
+                removerTitulo="Remover tag da pesquisa"
+                onRemove={() => removerTag(tag.id)}
+              />
             );
           })}
 
@@ -289,26 +275,14 @@ function Header({
             if (!tag) return null;
 
             return (
-              <span
+              <TagChip
                 key={`x${tag.id}`}
-                className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs font-semibold outline outline-2 outline-red-400"
-                style={{
-                  backgroundColor: tag.color ?? "#555555",
-                  color: tag.textColor ?? "#ffffff",
-                }}
-              >
-                <span className="text-red-300">−</span>
-                <span className="line-through decoration-red-400">{tag.name}</span>
-
-                <button
-                  type="button"
-                  onClick={() => removerExclusao(tag.id)}
-                  className="hover:opacity-60"
-                  title="Parar de excluir"
-                >
-                  <FaTimes />
-                </button>
-              </span>
+                tag={tag}
+                negada
+                className="shrink-0"
+                removerTitulo="Parar de excluir"
+                onRemove={() => removerExclusao(tag.id)}
+              />
             );
           })}
 
@@ -406,11 +380,12 @@ function Header({
             {sugestoes.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {sugestoes.map((tag) => (
-                  <button
+                  <TagChip
                     key={tag.id}
-                    type="button"
-                    title={tag.name}
-                    onMouseDown={(e) => e.preventDefault()}
+                    tag={tag}
+                    manterFoco
+                    negada={excluindo && !emGrupo}
+                    className="h-10 min-w-10 shrink-0 justify-center px-2"
                     onClick={() => {
                       if (emGrupo) {
                         const base = textoBusca.slice(0, textoBusca.lastIndexOf("|") + 1);
@@ -422,20 +397,7 @@ function Header({
                         selecionarTag(tag, excluindo);
                       }
                     }}
-                    className="min-w-10 h-10 px-2 shrink-0 rounded flex items-center justify-center border hover:brightness-125 transition"
-                    style={{
-                      backgroundColor: tag.color ?? "#555555",
-                      color: tag.textColor ?? "#ffffff",
-                      border: tag.hasBorder
-                        ? `2px solid ${tag.borderColor ?? "#ffffff"}`
-                        : "none",
-                    }}
-                  >
-                    <span className="text-xs font-bold whitespace-nowrap">
-                      {excluindo && !emGrupo && "− "}
-                      {tag.name}
-                    </span>
-                  </button>
+                  />
                 ))}
               </div>
             )}

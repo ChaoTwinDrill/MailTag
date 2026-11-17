@@ -1,36 +1,30 @@
-
 import { useState } from "react";
-import { FaTimes } from "react-icons/fa";
 import type { tags } from "./types/tag";
+import TagMultiSelect from "./TagMultiSelect";
+import { FaTimes } from "react-icons/fa";
+import { tagQueUsaNome } from "../lib/tags";
 
 type TagEditorProps = {
   tag: tags;
   allTags: tags[];
-  onSave: (
-    tagId: string,
-    nome: string,
-    cor: string | null,
-    corTexto: string | null,
-    temBorda: boolean,
-    corBorda: string | null,
-    parentTagId: string | null,
-    prioridade: number | null
-  ) => void | Promise<void>;
+ onSave: (
+  tagId: string,
+  nome: string,
+  cor: string | null,
+  corTexto: string | null,
+  temBorda: boolean,
+  corBorda: string | null,
+  parentTagId: string | null,
+  prioridade: number | null,
+  sinonimos?: string[]
+) => void | Promise<void>;
   onChangeAutoTags: (tagId: string, ids: string[]) => void | Promise<void>;
   onCreateCategory: (nome: string) => Promise<tags | null>;
   onBack: () => void;
 };
 
 const classeCampo =
-  "w-full rounded-md bg-fundo p-2 text-sm text-white outline-none focus:ring-2 focus:ring-purple-400 [color-scheme:dark]";
-
-function estiloTag(t: tags) {
-  return {
-    backgroundColor: t.color ?? "#555555",
-    color: t.textColor ?? "#ffffff",
-    border: t.hasBorder ? `2px solid ${t.borderColor ?? "#ffffff"}` : "none",
-  };
-}
+  "w-full rounded-md bg-fundo p-2 text-sm text-white outline-none focus:ring-2 focus:ring-botao-claro [color-scheme:dark]";
 
 export default function TagEditor({
   tag,
@@ -48,10 +42,10 @@ export default function TagEditor({
   const [parentTagId, setParentTagId] = useState<string | null>(tag.parentTagId);
   const [prioridade, setPrioridade] = useState(tag.priority?.toString() ?? "");
   const [autoIds, setAutoIds] = useState<string[]>(tag.autoTagIds);
-  const [buscaAuto, setBuscaAuto] = useState("");
   const [nomeCategoria, setNomeCategoria] = useState("");
   const [criandoCategoria, setCriandoCategoria] = useState(false);    
-
+  const [aliases, setAliases] = useState<string[]>(tag.aliases ?? []);
+  const [novoAlias, setNovoAlias] = useState("");
   const temFilhas = allTags.some((t) => t.parentTagId === tag.id);
 
   const categorias = allTags
@@ -67,16 +61,27 @@ export default function TagEditor({
       return;
     }
 
-    const duplicada = allTags.some(
-      (t) =>
-        t.id !== tag.id &&
-        t.name.toLowerCase() === nomeLimpo.toLowerCase()
-    );
+    const dona = tagQueUsaNome(allTags, nomeLimpo, tag.id);
 
-    if (duplicada) {
-      alert("Já existe uma tag com esse nome.");
+    if (dona) {
+      alert(`Já existe uma tag (ou sinônimo) com esse nome: "${dona.name}".`);
       return;
-    }
+      }
+
+      await onSave(
+        tag.id,
+        nomeLimpo,
+        cor,
+        corTexto,
+        temBorda,
+        corBorda,
+        parentTagId,
+        Number.isFinite(numero) ? numero : null,
+        aliases
+      );
+        
+    
+
 
     await onSave(
       tag.id,
@@ -99,7 +104,31 @@ export default function TagEditor({
 
     onBack();
   }
+  function adicionarAlias() {
+      const texto = novoAlias.trim();
 
+      if (!texto) return;
+
+      const minusculo = texto.toLowerCase();
+
+      if (
+        minusculo === nome.trim().toLowerCase() ||
+        aliases.some((a) => a.toLowerCase() === minusculo)
+      ) {
+        setNovoAlias("");
+        return;
+      }
+
+      const dona = tagQueUsaNome(allTags, texto, tag.id);
+
+      if (dona) {
+        alert(`"${texto}" já é usado pela tag "${dona.name}".`);
+        return;
+      }
+
+      setAliases([...aliases, texto]);
+      setNovoAlias("");
+    }
   async function criarCategoria() {
         const nomeLimpo = nomeCategoria.trim();
 
@@ -208,69 +237,55 @@ export default function TagEditor({
       <label className="mb-2 block text-sm text-gray-300">
         Ao adicionar esta tag, adicionar também
       </label>
+      
+      <div className="mb-5">
+        <TagMultiSelect
+          allTags={allTags}
+          selectedIds={autoIds}
+          onChange={setAutoIds}
+          ocultarId={tag.id}
+          placeholder="Buscar tag para puxar..."
+        />
+      </div>
+      <label className="mb-2 block text-sm text-gray-300">Sinônimos</label>
 
-      {autoIds.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {autoIds.map((id) => {
-            const t = allTags.find((x) => x.id === id);
-            if (!t) return null;
-
-            return (
+        {aliases.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {aliases.map((a) => (
               <span
-                key={id}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold"
-                style={estiloTag(t)}
+                key={a}
+                className="flex items-center gap-1 rounded bg-fundo px-2 py-1 text-xs font-semibold text-white outline outline-1 outline-botao-claro/50"
               >
-                {t.name}
+                {a}
                 <button
                   type="button"
+                  title="Remover sinônimo"
+                  onClick={() => setAliases(aliases.filter((x) => x !== a))}
                   className="hover:opacity-60"
-                  onClick={() => setAutoIds((atual) => atual.filter((x) => x !== id))}
                 >
                   <FaTimes />
                 </button>
               </span>
-            );
-          })}
-        </div>
-      )}
-
-      <input
-        type="text"
-        autoComplete="off"
-        placeholder="Buscar tag para puxar..."
-        value={buscaAuto}
-        onChange={(e) => setBuscaAuto(e.target.value)}
-        className={`${classeCampo} mb-2`}
-      />
-
-      {buscaAuto.trim() && (
-        <div className="mb-5 flex max-h-32 flex-wrap gap-2 overflow-y-auto">
-          {allTags
-            .filter(
-              (t) =>
-                t.id !== tag.id &&
-                !autoIds.includes(t.id) &&
-                t.name.toLowerCase().includes(buscaAuto.trim().toLowerCase())
-            )
-            .slice(0, 20)
-            .map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => {
-                  setAutoIds((atual) => [...atual, t.id]);
-                  setBuscaAuto("");
-                }}
-                className="rounded px-2 py-1 text-xs font-bold hover:brightness-125"
-                style={estiloTag(t)}
-              >
-                {t.name}
-              </button>
             ))}
-        </div>
-      )}
+          </div>
+        )}
 
+        <input
+          value={novoAlias}
+          autoComplete="off"
+          onChange={(e) => setNovoAlias(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              adicionarAlias();
+            }
+          }}
+          placeholder="Outro nome para esta tag (Enter)..."
+          className={`${classeCampo} mb-1`}
+        />
+        <p className="mb-5 text-xs text-gray-400">
+          Buscar ou digitar um sinônimo leva a esta tag.
+        </p>
       <label className="mb-2 block text-sm text-gray-300">
         Cor de fundo
       </label>

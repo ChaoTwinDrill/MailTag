@@ -18,4 +18,5 @@ export interface Media {
     thumbnailR2Key: string | null;
     thumbnailSrc: string;
     durationSeconds?: number | null;
+    createdBy?: string | null;
 }

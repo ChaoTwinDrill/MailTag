@@ -7,7 +7,11 @@ import MediaViewer from "./MediaViewer";
 import BatchTagModal from "./BatchTagModal";
 import type { PedidoAleatorio } from "../lib/aleatorio";
 
-const NUM_COLUNAS = 4;
+// Largura mínima de cada coluna; o número de colunas acompanha a janela
+const LARGURA_MIN_COLUNA = 200;
+const ESPACO_ENTRE_COLUNAS = 16;
+const MIN_COLUNAS = 4;
+const MAX_COLUNAS = 4;
 
 type MediagridProps = {
     medias: Media[];
@@ -16,6 +20,7 @@ type MediagridProps = {
     onCopyTags: (mediaId: string) => void;
     onPasteTags: (mediaIds: string[]) => void;
     copiedTagCount: number;
+    onSearchTag?: (tagId: string, excluir: boolean) => void;
     onSelectMedia: (media: Media | null) => void;
     selectedMedia: Media | null;
     onAddTag: (mediaId: string, nomeTag: string) => void;
@@ -55,6 +60,7 @@ function Mediagrid({
     onDeleteTag,
     onCustomizeTag,
     onCreateCategory,
+    onSearchTag,
     onChangeAutoTags,
     onDurationKnown,
     onRenameMedia,
@@ -68,6 +74,38 @@ function Mediagrid({
     const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
     const [marcandoTag, setMarcandoTag] = useState(false);
     const ancoraRef = useRef<string | null>(null);
+    const rolagemRef = useRef<HTMLDivElement>(null);
+    const [numColunas, setNumColunas] = useState(4);
+
+    useEffect(() => {
+        const el = rolagemRef.current;
+
+        if (!el) return;
+
+        function calcular() {
+            if (!el) return;
+
+            const estilo = getComputedStyle(el);
+            const largura =
+                el.clientWidth -
+                parseFloat(estilo.paddingLeft) -
+                parseFloat(estilo.paddingRight);
+
+            const n = Math.floor(
+                (largura + ESPACO_ENTRE_COLUNAS) /
+                    (LARGURA_MIN_COLUNA + ESPACO_ENTRE_COLUNAS)
+            );
+
+            setNumColunas(Math.min(MAX_COLUNAS, Math.max(MIN_COLUNAS, n)));
+        }
+
+        calcular();
+
+        const observer = new ResizeObserver(calcular);
+        observer.observe(el);
+
+        return () => observer.disconnect();
+    }, []);
 
     const multiplas = selecionadas.size > 1;
 
@@ -123,16 +161,16 @@ function Mediagrid({
 
     const colunas = useMemo(() => {
         const resultado: Media[][] = Array.from(
-            { length: NUM_COLUNAS },
+            { length: numColunas },
             () => []
         );
 
         medias.forEach((media, indice) => {
-            resultado[indice % NUM_COLUNAS].push(media);
+            resultado[indice % numColunas].push(media);
         });
 
         return resultado;
-    }, [medias]);
+    }, [medias, numColunas]);
 
     function limparSelecao() {
         setSelecionadas(new Set());
@@ -242,7 +280,7 @@ function Mediagrid({
 
         setMenu({ x, y });
     }
-
+    
     function abrirRelacionada(id: string) {
         const alvo = todasMedias.find((m) => m.id === id);
 
@@ -253,7 +291,15 @@ function Mediagrid({
         ancoraRef.current = id;
         onSelectMedia(alvo);
     }
-
+    const [anteriorSeq, proximaSeq] =
+    visualizando && selectedMedia
+        ? [
+            selectedMedia.previousMediaId
+            ? todasMedias.find((m) => m.id === selectedMedia.previousMediaId) ?? null
+            : null,
+            todasMedias.find((m) => m.previousMediaId === selectedMedia.id) ?? null,
+        ]
+        : [null, null];
     const posicao = selectedMedia
         ? medias.findIndex((m) => m.id === selectedMedia.id)
         : -1;
@@ -276,6 +322,7 @@ function Mediagrid({
     return (
         <div className="flex min-h-0 flex-1 overflow-hidden">
             <div
+                ref={rolagemRef}
                 className="min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden p-5 bg-fundo"
                 onDoubleClick={(e) => {
                     const alvo = e.target as HTMLElement;
@@ -316,6 +363,9 @@ function Mediagrid({
                     total={medias.length}
                     onNavegar={navegar}
                     onClose={() => setVisualizando(false)}
+                    sequenciaAnterior={anteriorSeq && { id: anteriorSeq.id, nome: anteriorSeq.name }}
+                    sequenciaProxima={proximaSeq && { id: proximaSeq.id, nome: proximaSeq.name }}
+                    onIrParaSequencia={abrirRelacionada}
                 />
             )}
 
@@ -327,6 +377,7 @@ function Mediagrid({
                 onRemoveTag={onRemoveTag}
                 onDeleteTag={onDeleteTag}
                 onCustomizeTag={onCustomizeTag}
+                onSearchTag={onSearchTag}
                 onCreateCategory={onCreateCategory}
                 onRenameMedia={onRenameMedia}
                 onChangeAutoTags={onChangeAutoTags}
@@ -338,7 +389,7 @@ function Mediagrid({
 
             {menu && (
                 <div
-                    className="fixed z-50 min-w-48 rounded-md bg-base p-1 shadow-lg"
+                    className="fixed z-50 min-w-48 animate-fade-in rounded-md bg-base p-1 shadow-lg"
                     style={{ left: menu.x, top: menu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >

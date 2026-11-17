@@ -5,6 +5,7 @@ import type { tags } from "./types/tag";
 import { supabase } from "../lib/supabase";
 import { LIBRARY_ID } from "../lib/library";
 import { executarComLimite, importarArquivo } from "./Importbutton";
+import TagMultiSelect from "./TagMultiSelect";
 
 
 
@@ -34,16 +35,7 @@ const ordenar = (lista: string[]) =>
   );
 
 const classeCampo =
-  "w-full rounded-md bg-fundo p-2 text-sm outline-none focus:ring-2 focus:ring-purple-400";
-
-function estilo(t: tags) {
-  return {
-    backgroundColor: t.color ?? "#555555",
-    color: t.textColor ?? "#ffffff",
-    border: t.hasBorder ? `2px solid ${t.borderColor ?? "#ffffff"}` : "none",
-  };
-}
-
+  "w-full rounded-md bg-fundo p-2 text-sm outline-none focus:ring-2 focus:ring-botao-claro";
 
 function mensagemDeErro(erro: unknown): string {
   if (erro instanceof Error) return erro.message;
@@ -78,7 +70,6 @@ function CreateBook({
   const [paginas, setPaginas] = useState<string[]>([]);
   const [capa, setCapa] = useState<string | null>(null);
   const [tagIds, setTagIds] = useState<string[]>([]);
-  const [textoTag, setTextoTag] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [progresso, setProgresso] = useState(0);
   const [total, setTotal] = useState(0);
@@ -89,7 +80,6 @@ function CreateBook({
     setPaginas([]);
     setCapa(null);
     setTagIds([]);
-    setTextoTag("");
   }, [aberto]);
 
   useEffect(() => {
@@ -110,14 +100,6 @@ function CreateBook({
   }, [aberto, arquivosIniciais]);
  
   if (!aberto) return null;
-
-  const busca = textoTag.trim().toLowerCase();
-
-  const sugestoes = busca
-    ? allTags
-        .filter((t) => !tagIds.includes(t.id) && t.name.toLowerCase().includes(busca))
-        .slice(0, 20)
-    : [];
 
   async function adicionarPaginas() {
     const escolhidas = await open({
@@ -150,17 +132,6 @@ function CreateBook({
       [copia[indice], copia[destino]] = [copia[destino], copia[indice]];
       return copia;
     });
-  }
-
-  async function confirmarTag() {
-    const nomeTag = textoTag.trim();
-    if (!nomeTag) return;
-
-    const existente = allTags.find((t) => t.name.toLowerCase() === nomeTag.toLowerCase());
-    const tag = existente ?? (await onCreateTag(nomeTag, categoriaPadraoId));
-
-    if (tag && !tagIds.includes(tag.id)) setTagIds((atuais) => [...atuais, tag.id]);
-    setTextoTag("");
   }
 
   async function criar() {
@@ -259,11 +230,11 @@ function CreateBook({
   return (
     <div
       data-painel-filtros
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-fade-in"
       onClick={() => !enviando && onClose()}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-base text-white shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col animate-pop rounded-xl border border-border bg-base text-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 pb-2">
@@ -285,56 +256,13 @@ function CreateBook({
 
           <label className="mb-1 block text-sm text-gray-300">Tags</label>
 
-          {tagIds.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {tagIds.map((id) => {
-                const tag = allTags.find((t) => t.id === id);
-                if (!tag) return null;
-
-                return (
-                  <span key={id} className="flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold" style={estilo(tag)}>
-                    {tag.name}
-                    <button type="button" onClick={() => setTagIds(tagIds.filter((t) => t !== id))} className="hover:opacity-60">
-                      <FaTimes />
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
-          )}
-
-          <input
-            autoComplete="off"
+          <TagMultiSelect
+            allTags={allTags}
+            selectedIds={tagIds}
+            onChange={setTagIds}
             placeholder="Digite uma tag e tecle Enter..."
-            value={textoTag}
-            onChange={(e) => setTextoTag(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                confirmarTag();
-              }
-            }}
-            className={classeCampo}
+            onCreate={(nomeTag) => onCreateTag(nomeTag, categoriaPadraoId)}
           />
-
-          {sugestoes.length > 0 && (
-            <div className="mt-2 flex max-h-28 flex-wrap gap-2 overflow-y-auto">
-              {sugestoes.map((tag) => (
-                <button
-                  key={tag.id}
-                  type="button"
-                  onClick={() => {
-                    setTagIds([...tagIds, tag.id]);
-                    setTextoTag("");
-                  }}
-                  className="rounded px-2 py-1 text-xs font-bold hover:brightness-125"
-                  style={estilo(tag)}
-                >
-                  {tag.name}
-                </button>
-              ))}
-            </div>
-          )}
 
           <div className="mb-5 mt-5 flex items-center gap-3">
             <button type="button" onClick={escolherCapa} className="rounded-md bg-botao px-3 py-2 text-sm hover:brightness-110">

@@ -11,5 +11,6 @@ export interface Book {
     createdAt: Date;
     modifiedAt: Date;
     previousBookId?: string | null;
+    createdBy?: string | null;
     coverR2Key: string | null;
 }

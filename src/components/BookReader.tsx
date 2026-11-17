@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Book } from "./types/book";
 import type { Media } from "./types/media";
-import MediaViewer from "./MediaViewer";
+import MediaViewer, { type VizinhoSequencia } from "./MediaViewer";
 import { supabase } from "../lib/supabase";
 import { LIBRARY_ID } from "../lib/library";
 import { obterArquivoCacheado } from "../lib/cache";
@@ -12,12 +12,18 @@ type Props = {
   onFimDoLivro?: () => void;
   onLivroAnterior?: () => void;
   comecarNoFim?: boolean;
+  sequenciaAnterior?: VizinhoSequencia | null;
+  sequenciaProxima?: VizinhoSequencia | null;
+  onIrParaSequencia?: (id: string) => void;
 };
 
 
 export default function BookReader({
   livro,
   onClose,
+  sequenciaAnterior,
+  sequenciaProxima,
+  onIrParaSequencia,
   onFimDoLivro,
   onLivroAnterior,
   comecarNoFim,
@@ -130,24 +136,34 @@ export default function BookReader({
         onClose={onClose}
         permitirAvancarNoFim 
         permitirRecuarNoInicio={!!onLivroAnterior}
+        titulo={livro.name}
+        sequenciaAnterior={sequenciaAnterior}
+        sequenciaProxima={sequenciaProxima}
+        onIrParaSequencia={onIrParaSequencia}
       />
     );
   }
 
   // Carregando, erro ou livro sem páginas
   return (
-    <div
-      data-painel-filtros
-      className="fixed inset-0 z-[150] flex items-center justify-center bg-fundo/90 text-white"
-      onClick={onClose}
-    >
-      <p>
-        {carregando
-          ? "Carregando..."
-          : erro
-            ? `Erro: ${erro}`
-            : "Este livro não tem páginas."}
-      </p>
+  <div
+    data-painel-filtros
+    className="fixed inset-0 z-[150] flex animate-fade-in items-center justify-center bg-fundo/90 text-white backdrop-blur-md"
+    onClick={onClose}
+  >
+    <div className="flex flex-col items-center gap-3 text-center">
+      {carregando ? (
+        <span className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+      ) : (
+        <>
+          <p className="font-Alexandria font-[700]">
+            {erro ? "Não foi possível abrir o livro" : "Este livro não tem páginas"}
+          </p>
+          {erro && <p className="max-w-80 text-sm text-gray-300">{erro}</p>}
+          <p className="text-xs text-gray-400">Clique para fechar</p>
+        </>
+      )}
     </div>
-  );
+  </div>
+);
 }

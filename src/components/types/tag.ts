@@ -12,4 +12,5 @@ export interface tags {
     textColor: string | null;
     priority: number | null;
     autoTagIds: string[];
+    aliases?: string[];
 }

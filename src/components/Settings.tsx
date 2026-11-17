@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { FaUserCircle } from "react-icons/fa";
 import { prepararAvatar } from "../lib/avatar";
 import { urlDeEmbed } from "../lib/modoDiscreto";
+import { supabase } from "../lib/supabase";
+import { salvarMeuNome, useNomeDoPerfil } from "../lib/perfis";
 
 type SettingsProps = {
   onClose: () => void;
@@ -19,7 +21,31 @@ onChangeDiscretoLink,
 
 }: SettingsProps) {
 
+const [userId, setUserId] = useState<string | null>(null);
+const [nome, setNome] = useState("");
+const nomeAtual = useNomeDoPerfil(userId);
+useEffect(() => {
+  supabase.auth
+    .getSession()
+    .then(({ data }) => setUserId(data.session?.user.id ?? null));
+}, []);
 
+useEffect(() => {
+  if (nomeAtual) setNome(nomeAtual);
+}, [nomeAtual]);
+
+async function salvarNome() {
+  if (!userId) return;
+
+  try {
+    setMensagemErro("");
+    await salvarMeuNome(userId, nome);
+  } catch (erro) {
+    setMensagemErro(
+      erro instanceof Error ? erro.message : "Não foi possível salvar o nome."
+    );
+  }
+}
  const inputRef = useRef<HTMLInputElement>(null);
  const [mensagemErro, setMensagemErro] = useState("");   
  
@@ -54,11 +80,11 @@ onChangeDiscretoLink,
   return (
     <div
       data-painel-filtros
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-[100] flex animate-fade-in items-center justify-center bg-black/50 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="min-h-[400px] w-[600px] max-w-[90vw] rounded-xl bg-base p-6 text-white"
+        className="min-h-[400px] w-[600px] max-w-[90vw] animate-pop rounded-xl bg-base p-6 text-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-6 flex items-center justify-between">
@@ -120,7 +146,34 @@ onChangeDiscretoLink,
                         <p className="mt-2 text-sm text-red-400">{mensagemErro}</p>
                     )}
                     </section>
+
+                      <label className="mb-1 mt-4 block text-sm text-white/70">Nome de exibição</label>
+                      <div className="flex gap-2">
+                        <input
+                          value={nome}
+                          maxLength={40}
+                          autoComplete="off"
+                          onChange={(e) => setNome(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && salvarNome()}
+                          className="w-full rounded-md bg-fundo p-2 text-sm outline-none focus:ring-2 focus:ring-botao-claro"
+                        />
+
+                        <button
+                          type="button"
+                          onClick={salvarNome}
+                          disabled={!nome.trim() || nome.trim() === nomeAtual}
+                          className="shrink-0 rounded-md bg-botao px-4 py-2 hover:brightness-110 disabled:opacity-40"
+                        >
+                          Salvar
+                        </button>
+                      </div>
+
+                      <p className="mt-1 text-xs text-white/50">
+                        É o nome que aparece em "Adicionado por".
+                      </p>
+
               <section className="mt-8">
+                
                 <h3 className="mb-3 text-sm font-bold uppercase text-white/60">
                   Modo discreto
                 </h3>
@@ -135,7 +188,7 @@ onChangeDiscretoLink,
                   placeholder="Link do YouTube"
                   value={discretoLink}
                   onChange={(e) => onChangeDiscretoLink(e.target.value)}
-                  className="w-full rounded-md bg-fundo p-2 text-sm outline-none focus:ring-2 focus:ring-purple-400"
+                  className="w-full rounded-md bg-fundo p-2 text-sm outline-none focus:ring-2 focus:ring-botao-claro"
                 />
 
                 {discretoLink.trim() &&

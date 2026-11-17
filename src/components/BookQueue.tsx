@@ -1,7 +1,19 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { FaGripVertical, FaListUl, FaRandom, FaTimes } from "react-icons/fa";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import {
+  FaGripVertical,
+  FaListUl,
+  FaPlay,
+  FaRandom,
+  FaTimes,
+} from "react-icons/fa";
 import type { Book } from "./types/book";
-import { obterArquivoCacheado } from "../lib/cache";
+import CapaLivro from "./CapaLivro";
 
 type BookQueueProps = {
   itens: Book[];
@@ -15,36 +27,6 @@ type BookQueueProps = {
   onEmbaralhar: () => void;
   onEncerrar: () => void;
 };
-
-function CapaMini({ livro }: { livro: Book }) {
-  const [src, setSrc] = useState("");
-
-  useEffect(() => {
-    setSrc("");
-
-    const chave = livro.coverThumbnailR2Key;
-
-    if (!chave) return;
-
-    let cancelado = false;
-
-    obterArquivoCacheado(chave)
-      .then((s) => {
-        if (!cancelado) setSrc(s);
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelado = true;
-    };
-  }, [livro.coverThumbnailR2Key]);
-
-  return (
-    <div className="h-14 w-10 shrink-0 overflow-hidden rounded bg-card">
-      {src && <img src={src} alt="" className="h-full w-full object-cover" />}
-    </div>
-  );
-}
 
 function BookQueue({
   itens,
@@ -62,7 +44,28 @@ function BookQueue({
   const [arrastando, setArrastando] = useState<number | null>(null);
   const [sobre, setSobre] = useState<number | null>(null);
 
+  // Ao abrir (ou trocar de livro), mostra o que está tocando
+  useEffect(() => {
+    if (!aberto) return;
+
+    listaRef.current
+      ?.querySelector("[data-fila-atual]")
+      ?.scrollIntoView({ block: "nearest" });
+  }, [aberto, atualId]);
+
   if (itens.length === 0) return null;
+
+  const indiceAtual = atualId ? itens.findIndex((l) => l.id === atualId) : -1;
+  const totalPaginas = itens.reduce((soma, l) => soma + l.pageCount, 0);
+
+  function cabecalhoDe(i: number): string | null {
+    if (indiceAtual === -1) return i === 0 ? "Na fila" : null;
+    if (i === 0 && indiceAtual > 0) return "Já tocados";
+    if (i === indiceAtual) return "Tocando agora";
+    if (i === indiceAtual + 1) return "A seguir";
+
+    return null;
+  }
 
   // Reordenação com o ponteiro (o arrastar nativo do navegador
   // é bloqueado pelo Tauri no Windows)
@@ -118,16 +121,18 @@ function BookQueue({
     <>
       {aberto && (
         <div
-          className="fixed bottom-20 left-4 z-[60] flex max-h-[70vh] w-80 flex-col rounded-xl bg-base text-white shadow-xl"
+          className="fixed bottom-20 left-4 z-[60] flex max-h-[70vh] w-80 origin-bottom-left animate-pop flex-col rounded-xl bg-base text-white shadow-xl"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between gap-2 p-3 pb-2">
-            <h2 className="font-Alexandria font-[700]">
-              Fila de reprodução
-              <span className="ml-2 text-sm font-normal text-gray-300">
-                {itens.length}
-              </span>
-            </h2>
+          <div className="flex items-start justify-between gap-2 p-3 pb-2">
+            <div>
+              <h2 className="font-Alexandria font-[700]">Fila de reprodução</h2>
+              <p className="text-xs text-gray-300">
+                {itens.length} {itens.length === 1 ? "livro" : "livros"} ·{" "}
+                {totalPaginas.toLocaleString("pt-BR")}{" "}
+                {totalPaginas === 1 ? "página" : "páginas"}
+              </p>
+            </div>
 
             <button
               type="button"
@@ -144,7 +149,7 @@ function BookQueue({
               type="button"
               onClick={onEmbaralhar}
               title="Embaralha os livros depois do atual"
-              className="flex items-center gap-2 rounded-md bg-botao px-3 py-1.5 text-sm hover:brightness-110"
+              className="flex items-center gap-2 rounded-md bg-botao px-3 py-1.5 text-sm transition hover:brightness-110"
             >
               <FaRandom />
               Embaralhar
@@ -154,7 +159,7 @@ function BookQueue({
               type="button"
               onClick={encerrar}
               title="Esvazia e fecha a fila"
-              className="rounded-md bg-botao px-3 py-1.5 text-sm text-red-400 hover:brightness-110"
+              className="rounded-md bg-botao px-3 py-1.5 text-sm text-red-400 transition hover:brightness-110"
             >
               Encerrar fila
             </button>
@@ -166,55 +171,79 @@ function BookQueue({
           >
             {itens.map((livro, i) => {
               const atual = livro.id === atualId;
+              const jaTocado = indiceAtual !== -1 && i < indiceAtual;
               const alvoDoArraste =
                 arrastando !== null && sobre === i && arrastando !== i;
+              const cabecalho = cabecalhoDe(i);
+
+              const marcador = alvoDoArraste
+                ? (sobre ?? 0) > (arrastando ?? 0)
+                  ? "shadow-[0_3px_0_0_var(--color-botao-claro)]"
+                  : "shadow-[0_-3px_0_0_var(--color-botao-claro)]"
+                : "";
 
               return (
-                <li
-                  key={livro.id}
-                  data-fila-item
-                  className={`flex items-center gap-2 rounded-md p-1.5 ${
-                    atual ? "bg-botao-claro/20 outline outline-2 outline-botao-claro" : "bg-fundo"
-                  } ${arrastando === i ? "opacity-40" : ""} ${
-                    alvoDoArraste ? "ring-2 ring-botao-claro" : ""
-                  }`}
-                >
-                  <span
-                    title="Arrastar para reordenar"
-                    onPointerDown={(e) => iniciarArraste(e, i)}
-                    className="cursor-grab touch-none px-1 text-gray-300"
-                  >
-                    <FaGripVertical />
-                  </span>
+                <Fragment key={livro.id}>
+                  {cabecalho && (
+                    <li className="px-1 pt-2 text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                      {cabecalho}
+                    </li>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => onTocar(livro.id)}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  <li
+                    data-fila-item
+                    {...(atual ? { "data-fila-atual": "" } : {})}
+                    className={`flex items-center gap-2 rounded-md p-1.5 transition ${
+                      atual
+                        ? "bg-botao-claro/15 outline outline-2 outline-botao-claro"
+                        : "bg-fundo hover:bg-botao"
+                    } ${jaTocado ? "opacity-60 hover:opacity-100" : ""} ${
+                      arrastando === i ? "opacity-40" : ""
+                    } ${marcador}`}
                   >
-                    <CapaMini livro={livro} />
-
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold">
-                        {livro.name}
-                      </span>
-                      <span className="block text-xs text-gray-300">
-                        {livro.pageCount}{" "}
-                        {livro.pageCount === 1 ? "página" : "páginas"}
-                        {atual && " · tocando"}
-                      </span>
+                    <span
+                      title="Arrastar para reordenar"
+                      onPointerDown={(e) => iniciarArraste(e, i)}
+                      className="cursor-grab touch-none px-1 text-gray-300"
+                    >
+                      <FaGripVertical />
                     </span>
-                  </button>
 
-                  <button
-                    type="button"
-                    title="Remover da fila"
-                    onClick={() => onRemover(livro.id)}
-                    className="px-1 hover:opacity-60"
-                  >
-                    <FaTimes />
-                  </button>
-                </li>
+                    <button
+                      type="button"
+                      onClick={() => onTocar(livro.id)}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    >
+                      <CapaLivro
+                        chave={livro.coverThumbnailR2Key}
+                        titulo={livro.name}
+                        className="h-16 w-12 shrink-0"
+                      />
+
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold">
+                          {livro.name}
+                        </span>
+                        <span className="flex items-center gap-1.5 text-xs text-gray-300">
+                          {atual && (
+                            <FaPlay className="h-2.5 w-2.5 text-botao-claro" />
+                          )}
+                          {livro.pageCount}{" "}
+                          {livro.pageCount === 1 ? "página" : "páginas"}
+                        </span>
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      title="Remover da fila"
+                      onClick={() => onRemover(livro.id)}
+                      className="px-1 text-gray-300 transition hover:text-white"
+                    >
+                      <FaTimes />
+                    </button>
+                  </li>
+                </Fragment>
               );
             })}
           </ul>
@@ -229,13 +258,13 @@ function BookQueue({
           e.stopPropagation();
           onToggle();
         }}
-        className={`fixed bottom-4 left-4 z-[60] flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg hover:brightness-125 ${
+        className={`fixed bottom-4 left-4 z-[60] flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg transition hover:brightness-125 ${
           aberto ? "bg-botao-claro text-fundo" : "bg-botao"
         }`}
       >
         <FaListUl className="h-5 w-5" />
 
-        <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-botao-claro px-1 text-xs font-bold text-fundo">
+        <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-botao-claro px-1 text-xs font-bold text-fundo ring-2 ring-fundo">
           {itens.length}
         </span>
       </button>

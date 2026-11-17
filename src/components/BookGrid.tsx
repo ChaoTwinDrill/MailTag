@@ -2,16 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import type { Book } from "./types/book";
 import type { tags } from "./types/tag";
 import type { filaLivros } from "../lib/fIlaLivros";
-import { obterArquivoCacheado } from "../lib/cache";
 import BookInfo from "./BookInfo";
 import BookReader from "./BookReader";
 import BookQueue from "./BookQueue";
-import { FaTimes } from "react-icons/fa";
+import TagSearch from "./TagSearch";
+import CapaLivro from "./CapaLivro";
+import { FaBook, FaCheck, FaTimes } from "react-icons/fa";
 import type { PedidoAleatorio } from "../lib/aleatorio";
 type BookGridProps = {
   livros: Book[];
   todosLivros: Book[];
   fila: filaLivros;
+  onSearchTag?: (tagId: string, excluir: boolean) => void;
   allTags: tags[];
   onAddTag: (livroId: string, nomeTag: string) => void;
   onAddTagToMany: (livroIds: string[], nomeTag: string) => void;
@@ -49,66 +51,41 @@ function BookCard({
   onOpen: (livro: Book) => void;
   onContextMenu: (livro: Book, e: React.MouseEvent) => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [capa, setCapa] = useState("");
-
-  useEffect(() => {
-    setCapa("");
-    const chave = livro.coverThumbnailR2Key;
-    if (!chave) return;
-
-    let cancelado = false;
-
-    const observer = new IntersectionObserver(
-      (entradas) => {
-        if (entradas.some((e) => e.isIntersecting)) {
-          observer.disconnect();
-          obterArquivoCacheado(chave)
-            .then((src) => {
-              if (!cancelado) setCapa(src);
-            })
-            .catch((erro) => console.error("Erro ao carregar capa:", erro));
-        }
-      },
-      { rootMargin: "300px" }
-    );
-
-    if (ref.current) observer.observe(ref.current);
-
-    return () => {
-      cancelado = true;
-      observer.disconnect();
-    };
-  }, [livro.coverThumbnailR2Key]);
-
   return (
     <div className="min-w-0">
       <div
-        ref={ref}
         data-book-card
         data-book-id={livro.id}
         onClick={(e) => onSelect(livro, e)}
         onDoubleClick={() => onOpen(livro)}
         onContextMenu={(e) => onContextMenu(livro, e)}
-        className={`relative aspect-[3/4] cursor-pointer overflow-hidden rounded-lg bg-card ${
-          selecionado ? "outline outline-4 outline-purple-200 brightness-75" : ""
+        className={`relative aspect-[3/4] cursor-pointer rounded-l-sm rounded-r-lg transition duration-150 ${
+          selecionado
+            ? "outline outline-4 outline-offset-2 outline-botao-claro"
+            : "hover:brightness-110"
         }`}
       >
-        {capa && (
-          <img
-            src={capa}
-            alt={livro.name}
-            decoding="async"
-            className="h-full w-full object-cover"
-          />
-        )}
+        <CapaLivro
+          chave={livro.coverThumbnailR2Key}
+          titulo={livro.name}
+          className="h-full w-full"
+        >
+          {selecionado && (
+            <span className="absolute left-3 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-botao-claro text-fundo shadow">
+              <FaCheck className="h-3 w-3" />
+            </span>
+          )}
 
-        <span className="absolute bottom-2 right-2 rounded bg-black/70 px-2 py-0.5 text-xs font-semibold text-white">
-          {livro.pageCount} {livro.pageCount === 1 ? "página" : "páginas"}
-        </span>
+          <span className="absolute bottom-2 right-2 rounded bg-black/70 px-2 py-0.5 text-xs font-semibold text-white">
+            {livro.pageCount} {livro.pageCount === 1 ? "página" : "páginas"}
+          </span>
+        </CapaLivro>
       </div>
 
-      <p className="mt-2 truncate font-Alexandria font-[500] text-white">
+      <p
+        title={livro.name}
+        className="mt-2 truncate font-Alexandria font-[500] text-white"
+      >
         {livro.name}
       </p>
     </div>
@@ -120,6 +97,7 @@ function BookGrid({
   todosLivros,
   fila,
   allTags,
+  onSearchTag,
   onDeleteBooks,
   onAddTag,
   onAddTagToMany,
@@ -147,6 +125,22 @@ function BookGrid({
   const ultimoPedido = useRef(pedidoAleatorio?.n ?? 0);
   const alvos = livros.filter((l) => selecionadas.has(l.id));
 
+  const leitor = leitorId
+  ? todosLivros.find((l) => l.id === leitorId) ?? null
+  : null;
+  const anteriorSeq = leitor?.previousBookId
+  ? todosLivros.find((l) => l.id === leitor.previousBookId) ?? null
+  : null;
+
+  const proximaSeq = leitor
+    ? todosLivros.find((l) => l.previousBookId === leitor.id) ?? null
+    : null;
+
+  function irParaSequencia(id: string) {
+    setLeitorNoFim(false);
+    setLeitorId(id);
+    seguirSelecao(id);
+  }
   useEffect(() => {
     if (!pedidoAleatorio || pedidoAleatorio.n === ultimoPedido.current) return;
 
@@ -167,9 +161,6 @@ function BookGrid({
       .querySelector(`[data-book-id="${alvo.id}"]`)
       ?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [pedidoAleatorio]);
-  const leitor = leitorId
-    ? todosLivros.find((l) => l.id === leitorId) ?? null
-    : null;
 
   useEffect(() => {
     if (leitorId && !leitor) setLeitorId(null);
@@ -429,9 +420,15 @@ useEffect(() => {
         }}
       >
         {livros.length === 0 ? (
-          <p className="py-10 text-center text-gray-400">Nenhum livro por aqui.</p>
+          <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center">
+            <FaBook className="h-10 w-10 text-white/25" />
+            <p className="font-Alexandria font-[700] text-white">Nenhum livro por aqui</p>
+            <p className="max-w-64 text-sm text-gray-400">
+              Crie um livro no botão "Criar livro" ou ajuste a busca e os filtros.
+            </p>
+          </div>
         ) : (
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-6 gap-4">
             {livros.map((livro) => (
               <BookCard
                 key={livro.id}
@@ -453,6 +450,7 @@ useEffect(() => {
         onAddTag={onAddTag}
         onRemoveTag={onRemoveTag}
         onCustomizeTag={onCustomizeTag}
+        onSearchTag={onSearchTag}
         onChangeAutoTags={onChangeAutoTags}
         onCreateCategory={onCreateCategory}
         todosLivros={todosLivros}
@@ -468,6 +466,9 @@ useEffect(() => {
           onFimDoLivro={fimDoLivro}
           onLivroAnterior={() => irParaLivro(-1, false)}
           comecarNoFim={leitorNoFim}
+          sequenciaAnterior={anteriorSeq && { id: anteriorSeq.id, nome: anteriorSeq.name }}
+          sequenciaProxima={proximaSeq && { id: proximaSeq.id, nome: proximaSeq.name }}
+          onIrParaSequencia={irParaSequencia}
         />
       )}
 
@@ -568,11 +569,11 @@ useEffect(() => {
       {modal && (
         <div
           data-painel-filtros
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-[60] flex animate-fade-in items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
           onClick={() => setModal(null)}
         >
           <div
-            className="w-full max-w-md rounded-xl bg-base p-5 text-white"
+            className="w-full max-w-md animate-pop rounded-xl bg-base p-5 text-white shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
@@ -587,82 +588,32 @@ useEffect(() => {
             </div>
 
             {modal === "adicionar" && (
-              <AddBookTag
-                allTags={allTags}
-                onConfirm={(nome) => {
-                  onAddTagToMany([...selecionadas], nome);
-                  setModal(null);
-                }}
-              />
+              <>
+                <TagSearch
+                  allTags={allTags}
+                  autoFocus
+                  alturaMax="max-h-40"
+                  placeholder="Digite uma tag e tecle Enter..."
+                  onPick={(tag) => {
+                    onAddTagToMany([...selecionadas], tag.name);
+                    setModal(null);
+                  }}
+                  onCreate={(nome) => {
+                    onAddTagToMany([...selecionadas], nome);
+                    setModal(null);
+                  }}
+                  onEscape={() => setModal(null)}
+                />
+
+                <p className="mt-3 text-xs text-gray-300">
+                  Se a tag não existir, ela será criada.
+                </p>
+              </>
             )}
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-function AddBookTag({
-  allTags,
-  onConfirm,
-}: {
-  allTags: tags[];
-  onConfirm: (nome: string) => void;
-}) {
-  const [texto, setTexto] = useState("");
-  const busca = texto.trim().toLowerCase();
-
-  const sugestoes = busca
-    ? allTags.filter((t) => t.name.toLowerCase().includes(busca)).slice(0, 20)
-    : [];
-
-  function confirmar(nome = texto) {
-    if (nome.trim()) onConfirm(nome.trim());
-  }
-
-  return (
-    <>
-      <input
-        autoFocus
-        autoComplete="off"
-        placeholder="Digite uma tag e tecle Enter..."
-        value={texto}
-        onChange={(e) => setTexto(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            confirmar();
-          }
-        }}
-        className="w-full rounded-md bg-fundo p-2 text-sm text-white outline-none focus:ring-2 focus:ring-purple-400"
-      />
-
-      {sugestoes.length > 0 && (
-        <div className="mt-2 flex max-h-40 flex-wrap gap-2 overflow-y-auto">
-          {sugestoes.map((tag) => (
-            <button
-              key={tag.id}
-              type="button"
-              onClick={() => confirmar(tag.name)}
-              className="rounded px-2 py-1 text-xs font-bold hover:brightness-125"
-              style={{
-                backgroundColor: tag.color ?? "#555",
-                color: tag.textColor ?? "#fff",
-                border: tag.hasBorder
-                  ? `2px solid ${tag.borderColor ?? "#fff"}`
-                  : "none",
-              }}
-            >
-              {tag.name}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <p className="mt-3 text-xs text-gray-300">
-        Se a tag não existir, ela será criada.
-      </p>
-    </>
   );
 }
 
