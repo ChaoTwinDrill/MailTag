@@ -137,7 +137,13 @@ export default function AdicionarTagBar({
           placeholder="Digite uma tag..."
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
-          onKeyDown={(e) => {
+         onKeyDown={(e) => {
+            if (e.key === "Tab" && sugestoes.length > 0) {
+              e.preventDefault();
+              adicionar(sugestoes[0].name);
+              return;
+            }
+
             if (e.key === "Enter") confirmar();
             if (e.key === "Escape") fechar();
           }}
